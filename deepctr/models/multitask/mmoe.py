@@ -9,7 +9,8 @@ Reference:
 """
 import tensorflow as tf
 from tensorflow.python.keras.layers import Layer
-from tensorflow.python.keras.initializers import glorot_normal
+from tensorflow.python.keras.initializers import glorot_normal, Zeros
+from tensorflow.python.keras import activations
 
 from deepctr.feature_column import build_input_features, input_from_feature_columns
 from deepctr.layers.utils import combined_dnn_input
@@ -34,47 +35,63 @@ class MMOELayer(Layer):
     References
       - [Jiaqi Ma, Zhe Zhao, Xinyang Yi, et al. Modeling Task Relationships in Multi-task Learning with Multi-gate Mixture-of-Experts[C]](https://dl.acm.org/doi/10.1145/3219819.3220007)
     """
-    def __init__(self, tasks, num_experts, output_dim,
-                 activation='relu', l2_reg=0, dropout_rate=0, use_bn=False,
-                 seed=1024, **kwargs):
+    def __init__(self, tasks, num_experts, output_dim, expert_activation='relu', seed=1024, **kwargs):
         self.tasks = tasks
         self.num_experts = num_experts
         self.output_dim = output_dim
+        self.expert_activation = expert_activation
         self.seed = seed
-        self.activation = activation
-        self.l2_reg = l2_reg
-        self.dropout_rate = dropout_rate
-        self.use_bn = use_bn
-        self.experts = DNN((self.num_experts * self.output_dim,), self.activation, self.l2_reg, self.dropout_rate,
-                           self.use_bn, seed=self.seed, name='experts')
-        self.gates = {}
-        for task_name in tasks:
-            self.gates[task_name] = DNN((self.num_experts,), self.activation, self.l2_reg, 0,
-                                        False, 'softmax', seed=self.seed, name=task_name+'_gate')
+        self.gates = None
+        self.gates_output = None
         super(MMOELayer, self).__init__(**kwargs)
 
-    # def build(self, input_shape):
-    #     input_dim = int(input_shape[-1])
-    #     self.expert_kernel = self.add_weight(
-    #                                 name='expert_kernel',
-    #                                 shape=(input_dim, self.num_experts * self.output_dim),
-    #                                 dtype=tf.float32,
-    #                                 initializer=glorot_normal(seed=self.seed))
-    #     self.gate_kernels = []
-    #     for i in range(self.num_tasks):
-    #         self.gate_kernels.append(self.add_weight(
-    #                                     name='gate_weight_{}'.format(i),
-    #                                     shape=(input_dim, self.num_experts),
-    #                                     dtype=tf.float32,
-    #                                     initializer=glorot_normal(seed=self.seed)))
-    #     super(MMOELayer, self).build(input_shape)
+    def build(self, input_shape):
+        input_dimension = input_shape[-1]
+
+        self.expert_kernels = self.add_weight(
+            name='expert_kernel',
+            shape=(input_dimension, self.output_dim * self.num_experts),
+            dtype=tf.float32,
+            initializer=glorot_normal(seed=self.seed),
+        )
+
+        self.expert_bias = self.add_weight(
+            name='expert_bias',
+            shape=(self.output_dim * self.num_experts),
+            dtype=tf.float32,
+            initializer=Zeros(),
+        )
+
+        self.gates = {}
+        for task_name in self.tasks:
+            self.getes[task_name] = {
+                'gate_kernel_{}'.format(task_name):
+                self.add_weight(name='gate_kernel_{}'.format(task_name),
+                                shape=(input_dimension, self.num_experts),
+                                dtype=tf.float32,
+                                initializer=glorot_normal(seed=self.seed)
+                                ),
+                'gate_bias_{}'.format(task_name):
+                self.add_weight(
+                    name='gate_bias_{}'.format(task_name),
+                    shape=(self.num_experts,),
+                    dtype=tf.float32,
+                    initializer=Zeros())}
+
+        super(MMOELayer, self).build(input_shape)
 
     def call(self, inputs, **kwargs):
         outputs = {}
-        expert_out = self.experts(inputs)
+        expert_out = tf.nn.bias_add(tf.tensordot(inputs, self.expert_kernel, axes=(-1, 0)), self.expert_bias)
         expert_out = tf.reshape(expert_out, [-1, self.output_dim, self.num_experts])
+        if self.expert_activation is not None:
+           expert_out = activations.get(self.expert_activation)(expert_out)
+        self.gates_output = {}
         for task_name in self.tasks:
-            gate_out = self.gates[task_name](inputs)
+            gate_out = tf.tensordot(inputs, self.gates[task_name]['gate_kernel_{}'.format(task_name)], axes=(-1, 0))
+            gate_out = tf.nn.bias_add(gate_out, self.gates[task_name]['gate_bias_{}'.format(task_name)])
+            gate_out = tf.nn.softmax(gate_out)
+            self.gates_output[task_name] = gate_out
             gate_out = tf.tile(tf.expand_dims(gate_out, axis=1), [1, self.output_dim, 1])
             output = tf.reduce_sum(tf.multiply(expert_out, gate_out), axis=2)
             outputs[task_name] = output
@@ -84,10 +101,7 @@ class MMOELayer(Layer):
         config = {'tasks': self.tasks,
                   'num_experts': self.num_experts,
                   'output_dim': self.output_dim,
-                  'activation': self.activation,
-                  'l2_reg': self.l2_reg,
-                  'dropout_rate': self.dropout_rate,
-                  'use_bn': self.use_bn
+                  'expert_activation': self.expert_activation,
                   }
         base_config = super(MMOELayer, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
@@ -190,7 +204,7 @@ def MMOE(dnn_feature_columns, tasks, num_experts=4, expert_dim=8,
         dnn_input = DNN(bottom_shared_units, dnn_activation, l2_reg_dnn, dnn_dropout,
                         bottom_shared_use_bn, seed=seed, name='bottom_shared_dnn')(dnn_input)
 
-    mmoe_outs = MMOELayer(list(tasks.kesy()), num_experts, expert_dim)(dnn_input)
+    mmoe_outs = MMOELayer(list(tasks.kesy()), num_experts, expert_dim, dnn_activation, seed)(dnn_input)
 
     # if task_dnn_units != None:
     #     mmoe_outs = [DNN(task_dnn_units, dnn_activation, l2_reg_dnn, dnn_dropout, False, seed=seed)(mmoe_out)

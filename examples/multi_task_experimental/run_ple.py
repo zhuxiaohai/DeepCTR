@@ -1,4 +1,5 @@
 #%%
+import platform
 import os
 import re
 import pandas as pd
@@ -19,7 +20,7 @@ from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 from deepctr.feature_column import SparseFeat, DenseFeat, get_feature_names
 from deepctr.models.multitask.ple import PLE, CGC
-from deepctr.models.multitask.call_backs import MyEarlyStopping
+from deepctr.models.multitask.call_backs import MyEarlyStopping, MyRecorder
 from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
 from deepctr.models.multitask.utils import calc_lift, cal_psi_score
 
@@ -34,20 +35,24 @@ if __name__ == "__main__":
     # configure
     task_name = 'preloan_istrans_overdue2'
     run_name = '1_1_weight_ple_fpd4_nomask'
-    checkpoint_dir = '.\\' + task_name + '\ckt\\' + run_name
-    tensorboard_dir = '.\\' + task_name + '\log_dir\\' + run_name
-    summary_dir = '.\\' + task_name + '\metrics\\' + run_name
-    trend_dir = '.\\' + task_name + '\\trend\\' + run_name
+    if platform.system() == 'Windows':
+        joint_symbol = '\\'
+    else:
+        joint_symbol = '/'
+    checkpoint_dir = joint_symbol.join([task_name, 'ckt', run_name])
+    tensorboard_dir = joint_symbol.join([task_name, 'log_dir', run_name])
+    summary_dir = joint_symbol.join([task_name, 'metrics', run_name])
+    trend_dir = joint_symbol.join([task_name, 'trend', run_name])
     if not os.path.exists(trend_dir):
         os.makedirs(trend_dir)
     tasks = {'istrans': 'binary', 'fpd4': 'binary'}
     loss_fns = {'istrans': keras.losses.binary_crossentropy,
                 'fpd4': keras.losses.binary_crossentropy}
-    metrics_logger = {'istrans': AUC(name='istrans_auc'),
-                      'fpd4': AUC(name='fpd4_auc')}
+    metrics_logger = {'istrans': AUC,
+                      'fpd4': AUC}
     loss_weights = {'istrans': 1, 'fpd4': 1}
-    config = {'layer1': {'hidden_unit': 8, 'tasks': {'share': 1, 'istrans': 1, 'fpd4': 1}},
-              'layer2': {'hidden_unit': 8, 'tasks': {'share': 1, 'istrans': 1, 'fpd4': 1}},
+    config = {'layer1': {'hidden_unit': 8, 'tasks': {'share': 2, 'istrans': 2, 'fpd4': 2}},
+              'layer2': {'hidden_unit': 8, 'tasks': {'share': 2, 'istrans': 2, 'fpd4': 2}},
               }
     uncertainty = False
     batch_size = 256
@@ -149,27 +154,38 @@ if __name__ == "__main__":
     test = data[data['set'] == '2test']
     oot = data[data['set'] == '3oot']
     model_input = {name: train[name] for name in feature_names}
-    model_batch_input = {name: train[name].iloc[:1] for name in feature_names}
     test_model_input = {name: test[name] for name in feature_names}
     oot_model_input = {name: oot[name] for name in feature_names}
+    model_batch_input = {name: train[name].iloc[:1] for name in feature_names}
+    callback_data = (test_model_input,
+                     {'istrans': test[['istrans']],
+                      'fpd4': test[['fpd4']]},
+                     {'istrans': test['istrans_weight'],
+                      'fpd4': test['fpd4_weight']})
+    callback_data = list(tf.data.Dataset.from_tensor_slices(callback_data).shuffle(test['istrans'].shape[0]).batch(
+        batch_size).take(1))[0]
 
     # train or predict
     if mode == 'train':
         model = PLE(dnn_feature_columns,
                     tasks,
                     config)
-
-        gradnorm_config = {'alpha': 0.1}
+        last_shared_weights = [weight for weight in model.get_layer('cgc_layer2').trainable_weights
+                               if weight.name.find('share') >= 0] + \
+                              [weight for weight in model.get_layer('cgc_layer1').trainable_weights
+                               if weight.name.find('share') >= 0]
+        gradnorm_config = {'alpha': 0.1, 'last_shared_weights': last_shared_weights}
         optimizers = keras.optimizers.Adam()
         model.compile(optimizers=optimizers,
                       loss_fns=loss_fns,
                       metrics_logger=metrics_logger,
                       loss_weights=loss_weights,
                       uncertainly=uncertainty,
-                      gradnorm_config=gradnorm_config,
+                      # gradnorm_config=gradnorm_config,
                       )
+
         try:
-            checkpoints = [checkpoint_dir + '\\' + name for name in os.listdir(checkpoint_dir)]
+            checkpoints = [joint_symbol.join([checkpoint_dir, name]) for name in os.listdir(checkpoint_dir)]
             latest_checkpoint = max(checkpoints).split('.index')[0]
             model.train_on_batch(model_batch_input,
                                  {'istrans': train[['istrans']].iloc[:1], 'fpd4': train[['fpd4']].iloc[:1]})
@@ -186,19 +202,21 @@ if __name__ == "__main__":
                             {'istrans': train[['istrans']], 'fpd4': train[['fpd4']]},
                             sample_weight={'istrans': train['istrans_weight'], 'fpd4': train['fpd4_weight']},
                             batch_size=256,
-                            epochs=100,
+                            epochs=3,
                             initial_epoch=last_epoch,
                             verbose=2,
                             validation_data=(test_model_input,
                                              {'istrans': test[['istrans']], 'fpd4': test[['fpd4']]},
                                              {'istrans': test['istrans_weight'], 'fpd4': test['fpd4_weight']}),
                             callbacks=[
-                                      MyEarlyStopping('val_fpd4_auc',
+                                      MyEarlyStopping('val_fpd4_AUC',
                                                       patience=10,
                                                       savepath=checkpoint_dir,
                                                       coef_of_balance=0.4,
                                                       direction='maximize'),
-                                      TensorBoard(log_dir=tensorboard_dir)
+                                      TensorBoard(log_dir=tensorboard_dir),
+                                      MyRecorder(log_dir=tensorboard_dir,
+                                                 data=callback_data)
                             ]
                             )
     else:
@@ -210,8 +228,8 @@ if __name__ == "__main__":
                 if metric > best_metric:
                     best_metric = metric
                     best_model = i
-        print('loading ', checkpoint_dir + '\\' + best_model)
-        model = load_model(checkpoint_dir + '\\' + best_model, custom_objects=custom_objects)
+        print('loading ', joint_symbol.join([checkpoint_dir, best_model]))
+        model = load_model(joint_symbol.join([checkpoint_dir, best_model]), custom_objects=custom_objects)
         file_writer = tf.summary.create_file_writer(summary_dir)
         print('final_result')
         for name in tasks.keys():
@@ -241,4 +259,4 @@ if __name__ == "__main__":
                 with file_writer.as_default():
                     tf.summary.scalar(name+'_ks', ks, step=index+1)
                     tf.summary.scalar(name+'_auc', auc_score, step=index+1)
-            fig.savefig(trend_dir + '\\' + name)
+            fig.savefig(joint_symbol.join([trend_dir, name]))
