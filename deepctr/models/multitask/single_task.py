@@ -11,9 +11,8 @@ from deepctr.layers.core import PredictionLayer, DNN
 from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
 
 
-def SimpleDNN(dnn_feature_columns, tasks,
-              dnn_hidden_units=(128, 128), l2_reg_embedding=1e-5, l2_reg_dnn=0,
-              seed=1024, dnn_dropout=0, dnn_activation='relu'):
+def SimpleDNN(dnn_feature_columns, tasks, dnn_hidden_units=(128, 128), dnn_use_bn=False,
+              l2_reg_embedding=1e-5, l2_reg_dnn=0, dnn_dropout=0, dnn_activation='relu', seed=1024):
     """Instantiates the Multi-gate Mixture-of-Experts architecture.
 
     :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
@@ -21,6 +20,7 @@ def SimpleDNN(dnn_feature_columns, tasks,
     for regression loss. e.g. {'task1': 'binary', 'task2': 'regression'}
     :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer
     of shared-bottom DNN
+    :param dnn_use_bn: bool
     :param l2_reg_embedding: float. L2 regularizer strength applied to embedding vector
     :param l2_reg_dnn: float. L2 regularizer strength applied to DNN
     :param seed: integer ,to use as random seed.
@@ -39,7 +39,7 @@ def SimpleDNN(dnn_feature_columns, tasks,
                                                                          l2_reg_embedding, seed)
     dnn_input = combined_dnn_input(sparse_embedding_list, dense_value_list)
     dnn_outs = DNN(dnn_hidden_units, dnn_activation, l2_reg_dnn, dnn_dropout,
-                   False, seed=seed)(dnn_input)
+                   dnn_use_bn, seed=seed)(dnn_input)
     dnn_outs = [dnn_outs]
     task_outputs = {}
     for dnn_out, task_name, task_type in zip(dnn_outs, tasks.keys(), tasks.values()):

@@ -1,5 +1,9 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.metrics import roc_curve
+cm_light = '#A0A0FF'
+cm_dark = 'r'
 
 
 def calc_lift(df, pred, target, title_name, ax, groupnum=None):
@@ -41,6 +45,145 @@ def calc_lift(df, pred, target, title_name, ax, groupnum=None):
                     textcoords="offset points",
                     ha='center', va='bottom')
     return ax
+
+
+def calc_lift2(df, pred, target, title_name, ax, groupnum=None):
+    if groupnum is None:
+        groupnum = len(df.index)
+
+    def n0(x): return sum(x == 0)
+    def n1(x): return sum(x == 1)
+    def total(x): return x.shape[0]
+    def name(x): return '[{:.2f}'.format(x.iloc[0]) + ', ' + '{:.2f}]'.format(x.iloc[-1])
+    dfkslift = df.sort_values(pred, ascending=True).reset_index(drop=True)\
+        .assign(group=lambda x: np.ceil((x.index+1)/(len(x.index)/groupnum)))\
+        .groupby('group').agg({target: [n0, n1, total], pred: name})\
+        .reset_index().rename(columns={'name': 'range', 'n0': 'good', 'n1': 'bad', 'total': 'count'})
+    columns = dfkslift.columns.droplevel(0).tolist()
+    columns[0] = 'group'
+    dfkslift.columns = columns
+    dfkslift = dfkslift.assign(
+        group=lambda x: (x.index+1)/len(x.index),
+        total_distri=lambda x: x['count']/sum(x['count']),
+        good_distri=lambda x: x.good/sum(x.good),
+        bad_distri=lambda x: x.bad/sum(x.bad),
+        cumgood_distri=lambda x: np.cumsum(x.good)/sum(x.good),
+        cumbad_distri=lambda x: np.cumsum(x.bad)/sum(x.bad),
+        badrate=lambda x: x.bad/(x.good+x.bad),
+        cumbadrate=lambda x: np.cumsum(x.bad)/np.cumsum(x.good+x.bad))\
+        .assign(ks=lambda x: abs(x.cumbad_distri-x.cumgood_distri))
+    dfkslift['lift'] = dfkslift.bad_distri / dfkslift.total_distri
+    dfkslift[['total_distri']].plot(kind='bar', width=0.3, color=cm_light, ax=ax, legend=False)
+    ax.set_ylabel('total_distri')
+    ax_curve = ax.twinx()
+    dfkslift[['lift']].plot(ax=ax_curve, marker='o', markersize=5, color=cm_dark, legend=False)
+    ax_curve.set_ylabel('lift')
+    ax_curve.grid()
+    for i in range(groupnum):
+        ax_curve.text(i, dfkslift['lift'].iloc[i] + 0.1,
+                      '%s' % round(dfkslift['lift'].iloc[i], 2),
+                      ha='center',
+                      fontsize=10)
+    ax_curve.plot([0, groupnum - 1], [1.0, 1.0], 'r--')
+    ax.set_xticks(np.arange(groupnum))
+    ax.set_xticklabels(np.arange(groupnum))
+    ax.set_xlim([-0.5, groupnum - 0.5])
+    ax.set_title(title_name)
+    return ax
+
+
+def calc_cum(df, pred, target, title_name, ax, groupnum=None):
+    if groupnum is None:
+        groupnum = len(df.index)
+
+    def n0(x): return sum(x == 0)
+    def n1(x): return sum(x == 1)
+    def total(x): return x.shape[0]
+    def name(x): return '[{:.2f}'.format(x.iloc[0]) + ', ' + '{:.2f}]'.format(x.iloc[-1])
+    dfkslift = df.sort_values(pred, ascending=True).reset_index(drop=True)\
+        .assign(group=lambda x: np.ceil((x.index+1)/(len(x.index)/groupnum)))\
+        .groupby('group').agg({target: [n0, n1, total], pred: name})\
+        .reset_index().rename(columns={'name': 'range', 'n0': 'good', 'n1': 'bad', 'total': 'count'})
+    columns = dfkslift.columns.droplevel(0).tolist()
+    columns[0] = 'group'
+    dfkslift.columns = columns
+    dfkslift = dfkslift.assign(
+        group=lambda x: (x.index+1)/len(x.index),
+        total_distri=lambda x: x['count']/sum(x['count']),
+        good_distri=lambda x: x.good/sum(x.good),
+        bad_distri=lambda x: x.bad/sum(x.bad),
+        cumgood_distri=lambda x: np.cumsum(x.good)/sum(x.good),
+        cumbad_distri=lambda x: np.cumsum(x.bad)/sum(x.bad),
+        badrate=lambda x: x.bad/(x.good+x.bad),
+        cumbadrate=lambda x: np.cumsum(x.bad)/np.cumsum(x.good+x.bad))\
+        .assign(ks=lambda x: abs(x.cumbad_distri-x.cumgood_distri))
+    dfkslift['lift'] = dfkslift.cumbadrate / df[target].mean()
+    dfkslift[['total_distri']].plot(kind='bar', width=0.3, color=cm_light, ax=ax, legend=False)
+    ax.set_ylabel('total_distri')
+    ax_curve = ax.twinx()
+    dfkslift[['lift']].plot(ax=ax_curve, marker='o', markersize=5, color=cm_dark, legend=False)
+    ax_curve.set_ylabel('lift')
+    ax_curve.grid()
+    for i in range(groupnum):
+        ax_curve.text(i, dfkslift['lift'].iloc[i] + 0.01,
+                      '%s' % round(dfkslift['lift'].iloc[i], 4),
+                      ha='center',
+                      fontsize=10)
+    ax_curve.plot([0, groupnum - 1], [1.0, 1.0], 'r--')
+    ax.set_xticks(np.arange(groupnum))
+    ax.set_xticklabels(np.arange(groupnum))
+    ax.set_xlim([-0.5, groupnum - 0.5])
+    ax.set_title(title_name)
+    return ax
+
+
+def cal_ks(predict, target, sample_weight=None, plot=False):
+    """
+    ks经济学意义:
+      将预测为坏账的概率从大到小排序，然后按从大到小依次选取一个概率值作为阈值，
+      大于阈值的部分为预测为坏账的部分--记录其中真实为坏账的个数， 真实为好账的个数，
+      上述记录值每次累加且除以总的坏账个数即累计坏账率，除以总好账个数为累计好账率, 累加结果存入列表
+    sklearn.metrics.roc_curve（二分类标签，预测为正例的概率或得分）:
+      将预测为正例（默认为1）的概率（0-1间）或得分（不限大小）从大到小排序, 然后按从大到小依次选取一个值作为阈值
+      大于阈值的部分为预测为正例的部分--其中真实为正例的个数即TP, 真实为负例的个数即为FP
+      上述值每次累加且除以总的正例个数为TPR, 除以总的负例个数为FPR，累加结果存入列表
+    ks = max(累计坏账率list - 累计好账率list) = max(TPR_list - FPR_list)
+    :param predict: list like, 可以为某个数值型特征字段，也可以是预测为坏账的概率的字段
+    :param target: list like, 好坏账标签字段，字段中1为坏账
+    :param plot: bool, 是否画图
+    :return: ks, ks_thresh
+    """
+    # fpr即FPR_list, tpr即TPR_list, thresholds为上述所谓依次选取的阈值
+    # thresholds一定是递减的，第一个值为max(预测为正例的概率或得分)+1
+    fpr, tpr, thresholds = roc_curve(target, predict, sample_weight=sample_weight)
+    ks = (tpr-fpr).max()
+    ks_index = np.argmax(tpr-fpr)
+    ks_thresh = thresholds[ks_index]
+    if plot:
+        # 绘制曲线
+        plt.plot(tpr, label='bad_cum', linewidth=2)
+        plt.plot(fpr, label='good_cum', linewidth=2)
+        plt.plot(tpr-fpr, label='ks_curve', linewidth=2)
+        # 标记ks点
+        x_point = (ks_index, ks_index)
+        y_point = (fpr[ks_index], tpr[ks_index])
+        plt.plot(x_point, y_point, label='ks {:.2f}@{:.2f}'.format(ks, ks_thresh),
+                 color='r', marker='o', markerfacecolor='r',
+                 markersize=5)
+        plt.scatter(x_point, y_point, color='r')
+        # 绘制x轴（阈值）, thresholds第一个值为max(预测为正例的概率或得分)+1, 因此不画出来
+        effective_indices_num = thresholds[1:].shape[0]
+        if effective_indices_num > 5:
+            # 向下取整
+            increment = int(effective_indices_num / 5)
+        else:
+            increment = 1
+        indices = range(1, thresholds.shape[0], increment)
+        plt.xticks(indices, [round(i, 2) for i in thresholds[indices]])
+        plt.xlabel('thresholds')
+        plt.legend()
+        plt.show()
+    return ks, ks_thresh
 
 
 def cal_psi_score(actual_array, expected_array,
@@ -133,8 +276,7 @@ def cal_psi_score(actual_array, expected_array,
 
         return cnt_array, range_array
 
-    expected_cnt, score_range_array = generate_counts(expected_array,
-                                                      breakpoints)
+    expected_cnt, score_range_array = generate_counts(expected_array, breakpoints)
     expected_percents = expected_cnt / len(expected_array)
     actual_cnt = generate_counts(actual_array, breakpoints)[0]
     actual_percents = actual_cnt / len(actual_array)

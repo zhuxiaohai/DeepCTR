@@ -161,7 +161,7 @@ class MultiTaskModelBase(keras.Model):
 
             self.log_vars = {}
             self.log_vars_logger = {}
-            for task_name in self.self.loss_fns.keys():
+            for task_name in self.loss_fns.keys():
                 if self.loss_fns[task_name] is not None:
                     self.log_vars[task_name] = self.add_weight(name=task_name + '_log_var', shape=(1,),
                                                                initializer=Constant(0.), trainable=True)

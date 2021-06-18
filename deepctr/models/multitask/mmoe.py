@@ -48,7 +48,7 @@ class MMOELayer(Layer):
     def build(self, input_shape):
         input_dimension = input_shape[-1]
 
-        self.expert_kernels = self.add_weight(
+        self.expert_kernel = self.add_weight(
             name='expert_kernel',
             shape=(input_dimension, self.output_dim * self.num_experts),
             dtype=tf.float32,
@@ -64,7 +64,7 @@ class MMOELayer(Layer):
 
         self.gates = {}
         for task_name in self.tasks:
-            self.getes[task_name] = {
+            self.gates[task_name] = {
                 'gate_kernel_{}'.format(task_name):
                 self.add_weight(name='gate_kernel_{}'.format(task_name),
                                 shape=(input_dimension, self.num_experts),
@@ -164,7 +164,7 @@ class MMOELayer(Layer):
 
 def MMOE(dnn_feature_columns, tasks, num_experts=4, expert_dim=8,
          bottom_shared_units=(128, 128), bottom_shared_use_bn=False, l2_reg_embedding=1e-5, l2_reg_dnn=0,
-         dnn_dropout=0, dnn_activation='relu', task_dnn_units=None, seed=1024):
+         dnn_dropout=0, dnn_activation='relu', task_dnn_units=None, task_use_bn=False, seed=1024):
     """Instantiates the Multi-gate Mixture-of-Experts architecture.
 
     :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
@@ -179,6 +179,7 @@ def MMOE(dnn_feature_columns, tasks, num_experts=4, expert_dim=8,
     :param l2_reg_dnn: float. L2 regularizer strength applied to DNN
     :param task_dnn_units: list,list of positive integer or empty list, the layer number and units in each layer
     of task-specific DNN
+    :param task_use_bn: whether to use batch normalization in task towers
     :param seed: integer ,to use as random seed.
     :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
     :param dnn_activation: Activation function to use in DNN
@@ -204,7 +205,7 @@ def MMOE(dnn_feature_columns, tasks, num_experts=4, expert_dim=8,
         dnn_input = DNN(bottom_shared_units, dnn_activation, l2_reg_dnn, dnn_dropout,
                         bottom_shared_use_bn, seed=seed, name='bottom_shared_dnn')(dnn_input)
 
-    mmoe_outs = MMOELayer(list(tasks.kesy()), num_experts, expert_dim, dnn_activation, seed)(dnn_input)
+    mmoe_outs = MMOELayer(list(tasks.keys()), num_experts, expert_dim, dnn_activation, seed)(dnn_input)
 
     # if task_dnn_units != None:
     #     mmoe_outs = [DNN(task_dnn_units, dnn_activation, l2_reg_dnn, dnn_dropout, False, seed=seed)(mmoe_out)
@@ -217,7 +218,7 @@ def MMOE(dnn_feature_columns, tasks, num_experts=4, expert_dim=8,
                            dnn_activation,
                            l2_reg_dnn,
                            dnn_dropout,
-                           False,
+                           task_use_bn,
                            seed=seed,
                            name=task_name+'_dnn')(mmoe_out)
         logit = tf.keras.layers.Dense(

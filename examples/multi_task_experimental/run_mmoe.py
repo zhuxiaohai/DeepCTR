@@ -1,4 +1,5 @@
 #%%
+import platform
 import os
 import re
 import pandas as pd
@@ -11,17 +12,19 @@ from sklearn.metrics import roc_auc_score, roc_curve
 from tensorflow.python.keras.callbacks import TensorBoard
 from tensorflow.python.keras.metrics import AUC
 from tensorflow.python.keras.models import load_model
+from tensorflow.python.keras.utils.vis_utils import plot_model
 from tensorflow.keras.metrics import Mean
 from tensorflow import keras
 import tensorflow as tf
+import kerastuner as kt
 
 from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 from deepctr.feature_column import SparseFeat, DenseFeat, get_feature_names
 from deepctr.models.multitask.mmoe import MMOE, MMOELayer
-from deepctr.models.multitask.call_backs import MyEarlyStopping
+from deepctr.models.multitask.call_backs import MyEarlyStopping, MyRecorder
 from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
-from deepctr.models.multitask.utils import calc_lift, cal_psi_score
+from deepctr.models.multitask.utils import calc_lift, cal_psi_score, calc_cum
 
 custom_objects['NoMask'] = NoMask
 custom_objects['MMOELayer'] = MMOELayer
@@ -30,23 +33,66 @@ custom_objects['Mean'] = Mean
 custom_objects['AUC'] = AUC
 
 
+def build_model(hp):
+    num_layers = hp.Int('num_bottom_layers', 1, 2, step=1)
+    bottom_shared_units = []
+    for i in range(num_layers):
+        bottom_shared_units.append(hp.Int('dnn_hidden_unit_' + str(i), 32, 128, step=32))
+    bottom_shared_use_bn = hp.Boolean('bottom_shared_use_bn', default=False)
+    num_experts = hp.Int('num_experts', 4, 12, step=2)
+    expert_dim = hp.Int('expert_dim', 4, 12, step=4)
+    l2_reg_embedding = hp.Float('l2_reg_embedding', 1e-5, 0.5, sampling='log')
+    l2_reg_dnn = hp.Float('l2_reg_dnn', 1e-5, 0.5, sampling='log')
+    dnn_dropout = hp.Float('dnn_dropout', 0.0, 0.5)
+    model = MMOE(dnn_feature_columns,
+                 tasks,
+                 num_experts=num_experts,
+                 expert_dim=expert_dim,
+                 bottom_shared_units=bottom_shared_units,
+                 bottom_shared_use_bn=bottom_shared_use_bn,
+                 l2_reg_embedding=l2_reg_embedding,
+                 l2_reg_dnn=l2_reg_dnn,
+                 dnn_dropout=dnn_dropout,
+                 )
+    if gradnorm:
+        last_shared_weights = [weight for weight in model.get_layer('mmoe_layer').trainable_weights
+                               if weight.name.find('expert') >= 0]
+        gradnorm_config = {'alpha': hp.Float('l2_reg_dnn', 0.1, 0.8, step=0.1),
+                           'last_shared_weights': last_shared_weights}
+    else:
+        gradnorm_config = None
+    model.compile(optimizers=keras.optimizers.Adam(learning_rate=hp.Float('learning_rate', 1e-4, 0.01, sampling='log')),
+                  loss_fns=loss_fns,
+                  metrics_logger=metrics_logger,
+                  uncertainly=uncertainty,
+                  gradnorm_config=gradnorm_config)
+    return model
+
+
 if __name__ == "__main__":
     # configure
-    task_name = 'preloan_istrans_overdue'
-    run_name = '1_1_weight_fpd4_mask2'
-    checkpoint_dir = '.\\' + task_name + '\ckt\\' + run_name
-    tensorboard_dir = '.\\' + task_name + '\log_dir\\' + run_name
-    summary_dir = '.\\' + task_name + '\metrics\\' + run_name
-    trend_dir = '.\\' + task_name + '\\trend\\' + run_name
+    project_name = 'preloan_istrans_overdue2'
+    run_name = 'gradnorm_weight_fpd4_nomask'
+    if platform.system() == 'Windows':
+        joint_symbol = '\\'
+    else:
+        joint_symbol = '/'
+    checkpoint_dir = joint_symbol.join([project_name, 'ckt', run_name])
+    tensorboard_dir = joint_symbol.join([project_name, 'log_dir', run_name])
+    summary_dir = joint_symbol.join([project_name, 'metrics', run_name])
+    trend_dir = joint_symbol.join([project_name, 'trend', run_name])
     if not os.path.exists(trend_dir):
         os.makedirs(trend_dir)
     tasks = {'istrans': 'binary', 'fpd4': 'binary'}
     loss_fns = {'istrans': keras.losses.binary_crossentropy,
                 'fpd4': keras.losses.binary_crossentropy}
-    metrics_logger = {'istrans': AUC(name='istrans_auc'),
-                      'fpd4': AUC(name='fpd4_auc')}
-    loss_weights = {'istrans': 1, 'fpd4': 1}
-    uncertainty = False
+    # loss_fns = {'istrans': keras.losses.BinaryCrossentropy(),
+    #             'fpd4': keras.losses.BinaryCrossentropy()}
+    metrics_logger = {'istrans': AUC,
+                      'fpd4': AUC}
+    loss_weights = {'istrans': 1, 'fpd4': 6}
+    uncertainty = True
+    gradnorm = True
     batch_size = 256
     mode = 'test'
 
@@ -116,7 +162,10 @@ if __name__ == "__main__":
                        'idcard_rural_flag']
     data['fpd4_weight'] = 1.0
     data['fpd4_mask'] = 1.0
-    data.loc[data['fpd4'].isnull(), 'fpd4_weight'] = 0
+    if run_name.find('nomask') >= 0:
+        data.loc[data['fpd4'].isnull(), 'fpd4_weight'] = 1.0
+    else:
+        data.loc[data['fpd4'].isnull(), 'fpd4_weight'] = 0.0
     data.loc[data['fpd4'].isnull(), 'fpd4_mask'] = 0
     data['istrans_weight'] = 1.0
     data['istrans_mask'] = 1.0
@@ -146,9 +195,16 @@ if __name__ == "__main__":
     test = data[data['set'] == '2test']
     oot = data[data['set'] == '3oot']
     model_input = {name: train[name] for name in feature_names}
-    model_batch_input = {name: train[name].iloc[:1] for name in feature_names}
     test_model_input = {name: test[name] for name in feature_names}
     oot_model_input = {name: oot[name] for name in feature_names}
+    model_batch_input = {name: train[name].iloc[:1] for name in feature_names}
+    callback_data = (test_model_input,
+                     {'istrans': test[['istrans']],
+                      'fpd4': test[['fpd4']]},
+                     {'istrans': test['istrans_weight'],
+                      'fpd4': test['fpd4_weight']})
+    callback_data = list(tf.data.Dataset.from_tensor_slices(callback_data).shuffle(test['istrans'].shape[0]).batch(
+        batch_size).take(1))[0]
 
     # train_dataset = tf.data.Dataset.from_tensor_slices((model_input,
     #                                                     {'istrans': train['istrans'].values,
@@ -162,15 +218,32 @@ if __name__ == "__main__":
     # train or predict
     if mode == 'train':
         model = MMOE(dnn_feature_columns,
-                     tasks=tasks)
-        optimizers = keras.optimizers.Adam()
+                     tasks,
+                     num_experts=8,
+                     expert_dim=8,
+                     bottom_shared_units=(96,),
+                     bottom_shared_use_bn=True,
+                     l2_reg_embedding=1e-05,
+                     l2_reg_dnn=0.00025204,
+                     dnn_dropout=0.5)
+        # plot_model(aa, to_file=joint_symbol.join([checkpoint_dir, 'model_viz.png']), show_shapes=True,
+        #            show_layer_names=True)
+        if gradnorm:
+            last_shared_weights = [weight for weight in model.get_layer('mmoe_layer').trainable_weights
+                                   if weight.name.find('expert') >= 0]
+            gradnorm_config = {'alpha': 0.1, 'last_shared_weights': last_shared_weights}
+        else:
+            gradnorm_config = None
+        last_lr = 0.0029
+        optimizers = keras.optimizers.Adam(learning_rate=last_lr)
         model.compile(optimizers=optimizers,
                       loss_fns=loss_fns,
                       metrics_logger=metrics_logger,
                       loss_weights=loss_weights,
-                      uncertainly=uncertainty)
+                      uncertainly=uncertainty,
+                      gradnorm_config=gradnorm_config)
         try:
-            checkpoints = [checkpoint_dir + '\\' + name for name in os.listdir(checkpoint_dir)]
+            checkpoints = [joint_symbol.join([checkpoint_dir, name]) for name in os.listdir(checkpoint_dir)]
             latest_checkpoint = max(checkpoints).split('.index')[0]
             model.train_on_batch(model_batch_input,
                                  {'istrans': train[['istrans']].iloc[:1], 'fpd4': train[['fpd4']].iloc[:1]})
@@ -182,7 +255,8 @@ if __name__ == "__main__":
         except:
             print('Creating a new model')
             last_epoch = 0
-            last_lr = 0.001
+        print('last epoch', last_epoch)
+        print('last lr', last_lr)
         history = model.fit(model_input,
                             {'istrans': train[['istrans']], 'fpd4': train[['fpd4']]},
                             sample_weight={'istrans': train['istrans_weight'], 'fpd4': train['fpd4_weight']},
@@ -194,52 +268,119 @@ if __name__ == "__main__":
                                              {'istrans': test[['istrans']], 'fpd4': test[['fpd4']]},
                                              {'istrans': test['istrans_weight'], 'fpd4': test['fpd4_weight']}),
                             callbacks=[
-                                      MyEarlyStopping('val_fpd4_auc',
+                                      MyEarlyStopping('val_fpd4_AUC',
                                                       patience=10,
                                                       savepath=checkpoint_dir,
                                                       coef_of_balance=0.4,
                                                       direction='maximize'),
-                                      TensorBoard(log_dir=tensorboard_dir)
+                                      TensorBoard(log_dir=tensorboard_dir),
+                                      MyRecorder(log_dir=tensorboard_dir,
+                                                 data=callback_data)
                             ]
                             )
+    elif mode == 'tuning':
+        tuner = kt.BayesianOptimization(
+            build_model,
+            objective=kt.Objective('val_fpd4_AUC', direction="max"),
+            max_trials=50,
+            num_initial_points=10)
+        tuner.search(x=model_input,
+                     y={'istrans': train[['istrans']], 'fpd4': train[['fpd4']]},
+                     sample_weight={'istrans': train['istrans_weight'], 'fpd4': train['fpd4_weight']},
+                     batch_size=batch_size,
+                     verbose=2,
+                     epochs=100,
+                     validation_data=(test_model_input,
+                                      {'istrans': test[['istrans']], 'fpd4': test[['fpd4']]},
+                                      {'istrans': test['istrans_weight'], 'fpd4': test['fpd4_weight']}),
+                     callbacks=[keras.callbacks.EarlyStopping(monitor='val_fpd4_AUC',
+                                                              patience=10)]
+                     )
+        # even if you had not searched the best param, tuner object could find the best hyperparameters
+        # as well as the best model from the tuning_dir you passed in
+        best_hyperparameters = tuner.get_best_hyperparameters(1)[0]
+        print(best_hyperparameters.values)
+        # model = tuner.get_best_models(1)[0]
     else:
         best_metric = -1
         best_model = None
         for i in os.listdir(checkpoint_dir):
             if i.find('best_model') >= 0:
-                metric = float(re.match('.*auc(.*).h5', i)[1])
+                metric = float(re.match('.*AUC(.*).h5', i)[1])
                 if metric > best_metric:
                     best_metric = metric
                     best_model = i
-        print('loading ', checkpoint_dir + '\\' + best_model)
-        model = load_model(checkpoint_dir + '\\' + best_model, custom_objects=custom_objects)
+        print('loading ', joint_symbol.join([checkpoint_dir, best_model]))
+        model = load_model(joint_symbol.join([checkpoint_dir, best_model]), custom_objects=custom_objects)
+        outputs = {layer.name: layer.gates_output
+                   for layer in model.layers
+                   if (layer.name.find('cgc_layer') >= 0) or (layer.name.find('mmoe') >= 0)}
+        intermediate_model = keras.Model(model.input, outputs=outputs)
         file_writer = tf.summary.create_file_writer(summary_dir)
         print('final_result')
-        for name in tasks.keys():
+        for task_name in tasks.keys():
             fig = plt.figure(figsize=(8, 10))
-            fig.suptitle(run_name + '_' + name)
+            fig.suptitle(run_name + '_' + task_name)
             for index, set_name in enumerate(['1train', '2test', '3oot']):
                 set_data = data[data['set'] == set_name]
                 predictions = model.predict({name: set_data[name] for name in feature_names})
-                auc_score = roc_auc_score(set_data[name].values, predictions[name][:, 0], sample_weight=set_data[name+'_mask'])
-                fpr, tpr, _ = roc_curve(set_data[name].values, predictions[name][:, 0], sample_weight=set_data[name+'_mask'])
+                auc_score = roc_auc_score(set_data[task_name].values, predictions[task_name][:, 0], sample_weight=set_data[task_name+'_mask'])
+                fpr, tpr, _ = roc_curve(set_data[task_name].values, predictions[task_name][:, 0], sample_weight=set_data[task_name+'_mask'])
                 ks = np.max(np.abs(tpr - fpr))
-                pred = predictions[name][:, 0]
-                target = set_data[name].values
-                weight = set_data[name+'_mask'].values
+                pred = predictions[task_name][:, 0]
+                target = set_data[task_name].values
+                weight = set_data[task_name+'_mask'].values
                 pred = pred[weight != 0]
                 target = target[weight != 0]
-                if set_name != '1train':
+                if set_name == '1train':
+                    expected = pred
+                    title = '{} ks_{:.2f} auc_{:.2f}'.format(set_name, ks, auc_score)
+                elif set_name == '2test':
                     psi = cal_psi_score(pred, expected)
                     title = '{} ks_{:.2f} auc_{:.2f} psi_{:.2f}'.format(set_name, ks, auc_score, psi)
                 else:
-                    expected = pred
                     title = '{} ks_{:.2f} auc_{:.2f}'.format(set_name, ks, auc_score)
                 df = pd.DataFrame({'pred': pred, 'target': target})
                 ax = fig.add_subplot(3, 1, index+1)
                 _ = calc_lift(df, 'pred', 'target', ax=ax, groupnum=10, title_name=title)
-                print(' {}: {} auc {:4f} ks {:4f}'.format(name, set_name, auc_score, ks))
+                print(' {}: {} auc {:4f} ks {:4f}'.format(task_name, set_name, auc_score, ks))
                 with file_writer.as_default():
-                    tf.summary.scalar(name+'_ks', ks, step=index+1)
-                    tf.summary.scalar(name+'_auc', auc_score, step=index+1)
-            fig.savefig(trend_dir + '\\' + name)
+                    tf.summary.scalar(task_name+'_ks', ks, step=index+1)
+                    tf.summary.scalar(task_name+'_auc', auc_score, step=index+1)
+            fig.savefig(joint_symbol.join([trend_dir, task_name]))
+        print('plot experts')
+        set_name = '3oot'
+        set_data = data[data['set'] == set_name]
+        intermediate_results = intermediate_model.predict({name: set_data[name].values for name in feature_names})
+        fig2 = plt.figure(figsize=(8, 10))
+        fig2.suptitle(run_name + '_experts')
+        for layer_index, (layer_name, layer_outputs) in enumerate(intermediate_results.items()):
+            ax = fig2.add_subplot(len(intermediate_results), 1, layer_index + 1)
+            ax.set_title(layer_name)
+            gate_output_series = pd.Series()
+            for gate_name, gate_output in layer_outputs.items():
+                for i in range(gate_output.shape[-1]):
+                    expert_name = gate_name + '_expert_' + str(i)
+                    gate_output_series = gate_output_series.append(pd.Series({expert_name: gate_output[:, i].mean()}))
+            gate_output_series.plot(kind='bar', ax=ax)
+            ax.set_xticklabels(labels=gate_output_series.index, rotation=-20, horizontalalignment='left')
+            ax.grid()
+        fig2.savefig(joint_symbol.join([trend_dir, 'experts']))
+
+        print('cross_validation')
+        set_data = data[data['set'] == '3oot']
+        predictions = model.predict({name: set_data[name] for name in feature_names})
+        fig_cross = plt.figure(figsize=(8, 10))
+        fig_cross.suptitle(run_name + '_cross')
+        ax_cross = fig_cross.add_subplot(2, 1, 1)
+        df = pd.DataFrame({'pred': predictions['fpd4'][:, 0], 'target': set_data['istrans'].values})
+        _ = calc_cum(df, 'pred', 'target', ax=ax_cross, groupnum=10, title_name='istrans')
+        pred = predictions['istrans'][:, 0]
+        target = set_data['fpd4'].values
+        weight = set_data['fpd4_mask'].values
+        pred = pred[weight != 0]
+        target = target[weight != 0]
+        ax_cross = fig_cross.add_subplot(2, 1, 2)
+        df = pd.DataFrame({'pred': pred, 'target': target})
+        _ = calc_cum(df, 'pred', 'target', ax=ax_cross, groupnum=10, title_name='fpd4')
+        fig_cross.savefig(joint_symbol.join([trend_dir, 'cross']))

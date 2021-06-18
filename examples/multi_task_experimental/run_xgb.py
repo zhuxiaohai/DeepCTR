@@ -1,5 +1,6 @@
 #%%
 import platform
+import json
 import os
 import re
 import pandas as pd
@@ -8,23 +9,22 @@ import matplotlib.pyplot as plt
 
 from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 from sklearn.metrics import roc_auc_score, roc_curve
+import xgboost as xgb
 
 from tensorflow.python.keras.callbacks import TensorBoard
 from tensorflow.python.keras.metrics import AUC
 from tensorflow.python.keras.models import load_model
-from tensorflow.python.keras.utils.vis_utils import plot_model
 from tensorflow.keras.metrics import Mean
 from tensorflow import keras
 import tensorflow as tf
-import kerastuner as kt
 
 from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 from deepctr.feature_column import SparseFeat, DenseFeat, get_feature_names
-from deepctr.models.multitask.single_task import SimpleDNN
 from deepctr.models.multitask.call_backs import MyEarlyStopping
 from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
 from deepctr.models.multitask.utils import calc_lift, cal_psi_score, calc_cum
+from deepctr.models.multitask.grid_search_xgb import OptunaSearchXGB
 
 custom_objects['NoMask'] = NoMask
 custom_objects['MultiTaskModelBase'] = MultiTaskModelBase
@@ -32,36 +32,11 @@ custom_objects['Mean'] = Mean
 custom_objects['AUC'] = AUC
 
 
-def build_model(hp):
-    num_layers = 2
-    dnn_hidden_units = []
-    for i in range(num_layers):
-        dnn_hidden_units.append(hp.Int('dnn_hidden_unit_' + str(i), 32, 128, step=32))
-    dnn_use_bn = hp.Boolean('dnn_use_bn', default=False)
-    l2_reg_embedding = hp.Float('l2_reg_embedding', 1e-5, 0.5, sampling='log')
-    l2_reg_dnn = hp.Float('l2_reg_dnn', 1e-5, 0.5, sampling='log')
-    dnn_dropout = hp.Float('dnn_dropout', 0.0, 0.5)
-    model = SimpleDNN(dnn_feature_columns,
-                      tasks,
-                      dnn_hidden_units=dnn_hidden_units,
-                      dnn_use_bn=dnn_use_bn,
-                      l2_reg_embedding=l2_reg_embedding,
-                      l2_reg_dnn=l2_reg_dnn,
-                      dnn_dropout=dnn_dropout
-                      )
-    model.compile(optimizers=keras.optimizers.Adam(learning_rate=hp.Float('learning_rate', 1e-4, 0.01, sampling='log')),
-                  loss_fns=loss_fns,
-                  metrics_logger=metrics_logger,
-                  uncertainly=uncertainty,
-                  gradnorm_config=gradnorm_config)
-    return model
-
-
 if __name__ == "__main__":
     # configure
     project_name = 'preloan_istrans_overdue2'
     single_name = 'istrans'
-    run_name = 'single_expertfeatures_{}'.format(single_name)
+    run_name = 'xgb_expertfeatures_{}'.format(single_name)
     if platform.system() == 'Windows':
         joint_symbol = '\\'
     else:
@@ -72,12 +47,13 @@ if __name__ == "__main__":
     trend_dir = joint_symbol.join([project_name, 'trend', run_name])
     if not os.path.exists(trend_dir):
         os.makedirs(trend_dir)
+    if not os.path.exists(checkpoint_dir):
+        os.makedirs(checkpoint_dir)
     tasks = {single_name: 'binary'}
     loss_fns = {single_name: keras.losses.binary_crossentropy}
     metrics_logger = {single_name: AUC}
     uncertainty = False
     gradnorm = False
-    gradnorm_config = None
     batch_size = 256
     mode = 'test'
 
@@ -244,114 +220,52 @@ if __name__ == "__main__":
     train = data[data['set'] == '1train']
     test = data[data['set'] == '2test']
     oot = data[data['set'] == '3oot']
-    model_input = {name: train[name] for name in feature_names}
-    test_model_input = {name: test[name] for name in feature_names}
-    oot_model_input = {name: oot[name] for name in feature_names}
-    model_batch_input = {name: train[name].iloc[:1] for name in feature_names}
-    callback_data = (test_model_input,
-                     {'istrans': test[['istrans']],
-                      'fpd4': test[['fpd4']]},
-                     {'istrans': test['istrans_weight'],
-                      'fpd4': test['fpd4_weight']})
-    callback_data = list(tf.data.Dataset.from_tensor_slices(callback_data).shuffle(test['istrans'].shape[0]).batch(
-        batch_size).take(1))[0]
 
     # train or predict
     if mode == 'train':
-        # fdp4
-        # model = SimpleDNN(dnn_feature_columns,
-        #                   tasks,
-        #                   dnn_hidden_units=(96, 96),
-        #                   dnn_use_bn=True,
-        #                   l2_reg_embedding=0.0005835949243783095,
-        #                   l2_reg_dnn=1e-05,
-        #                   dnn_dropout=0.5)
-        # last_lr = 0.01
-        # istrans
-        model = SimpleDNN(dnn_feature_columns,
-                          tasks,
-                          dnn_hidden_units=(96, 96),
-                          dnn_use_bn=True,
-                          l2_reg_embedding=0.49999999999999994,
-                          l2_reg_dnn=1e-05,
-                          dnn_dropout=0.158437822002694)
-        last_lr = 0.001
-        optimizers = keras.optimizers.Adam(learning_rate=last_lr)
-        model.compile(optimizers=optimizers,
-                      loss_fns=loss_fns,
-                      metrics_logger=metrics_logger,
-                      uncertainly=uncertainty,
-                      gradnorm_config=gradnorm_config)
-        plot_model(model, to_file=joint_symbol.join([checkpoint_dir, 'model_viz.png']), show_shapes=True,
-                   show_layer_names=True)
-        try:
-            checkpoints = [joint_symbol.join([checkpoint_dir, name]) for name in os.listdir(checkpoint_dir)]
-            latest_checkpoint = max(checkpoints).split('.index')[0]
-            model.train_on_batch(model_batch_input,
-                                 {'istrans': train[['istrans']].iloc[:1], 'fpd4': train[['fpd4']].iloc[:1]})
-            model.load_weights(latest_checkpoint)
-            _, last_epoch, last_lr = latest_checkpoint.split('-')
-            print('Restoring from ', latest_checkpoint)
-            last_epoch = int(last_epoch)
-            last_lr = float(last_lr)
-        except:
-            print('Creating a new model')
-            last_epoch = 0
-        print('last epoch', last_epoch)
-        print('last lr', last_lr)
-        history = model.fit(model_input,
-                            {task_name: train[[task_name]] for task_name in tasks.keys()},
-                            sample_weight={task_name: train[task_name + '_weight'] for task_name in tasks.keys()},
-                            batch_size=256,
-                            epochs=100,
-                            initial_epoch=last_epoch,
-                            verbose=2,
-                            validation_data=(test_model_input,
-                                             {task_name: test[[task_name]] for task_name in tasks.keys()},
-                                             {task_name: test[task_name + '_weight'] for task_name in tasks.keys()}),
-                            callbacks=[
-                                      MyEarlyStopping('val_{}_AUC'.format(list(tasks.keys())[0]),
-                                                      patience=10,
-                                                      savepath=checkpoint_dir,
-                                                      coef_of_balance=0.4,
-                                                      direction='maximize'),
-                                      TensorBoard(log_dir=tensorboard_dir)
-                            ]
-                            )
-    elif mode == 'tuning':
-        tuner = kt.BayesianOptimization(
-            build_model,
-            objective=kt.Objective('val_{}_AUC'.format(list(tasks.keys())[0]), direction="max"),
-            max_trials=100,
-            num_initial_points=10)
-        tuner.search(x=model_input,
-                     y={task_name: train[[task_name]] for task_name in tasks.keys()},
-                     sample_weight={task_name: train[task_name + '_weight'] for task_name in tasks.keys()},
-                     batch_size=batch_size,
-                     verbose=2,
-                     epochs=100,
-                     validation_data=(test_model_input,
-                                      {task_name: test[[task_name]] for task_name in tasks.keys()},
-                                      {task_name: test[task_name + '_weight'] for task_name in tasks.keys()}),
-                     callbacks=[keras.callbacks.EarlyStopping(monitor='val_{}_AUC'.format(list(tasks.keys())[0]),
-                                                              patience=10)]
-                     )
-        # even if you had not searched the best param, tuner object could find the best hyperparameters
-        # as well as the best model from the tuning_dir you passed in
-        best_hyperparameters = tuner.get_best_hyperparameters(1)[0]
-        print(best_hyperparameters.values)
-        # model = tuner.get_best_models(1)[0]
+        op = OptunaSearchXGB()
+        tuning_param_dict = {'objective': 'binary:logistic',
+                             'verbosity': 0,
+                             'seed': 2,
+                             'num_parallel_tree': ('int', {'low': 1, 'high': 4}),
+                             'max_depth': ('int', {'low': 2, 'high': 6}),
+                             'reg_lambda': ('int', {'low': 1, 'high': 20}),
+                             'reg_alpha': ('int', {'low': 1, 'high': 20}),
+                             'gamma': ('int', {'low': 0, 'high': 3}),
+                             'min_child_weight': ('int', {'low': 1, 'high': 30}),
+                             'base_score': ('discrete_uniform', {'low': 0.5, 'high': 0.9, 'q': 0.1}),
+                             'colsample_bytree': ('discrete_uniform', {'low': 0.7, 'high': 1, 'q': 0.05}),
+                             'colsample_bylevel': ('discrete_uniform', {'low': 0.7, 'high': 1, 'q': 0.05}),
+                             'colsample_bynode': ('discrete_uniform', {'low': 0.7, 'high': 1, 'q': 0.05}),
+                             'subsample': ('discrete_uniform', {'low': 0.7, 'high': 1, 'q': 0.05}),
+                             'eta': ('discrete_uniform', {'low': 0.07, 'high': 1.2, 'q': 0.01}),
+                             'rate_drop': ('float', {'low': 1e-8, 'high': 1.0, 'log': True}),
+                             'skip_drop': ('float', {'low': 1e-8, 'high': 1.0, 'log': True}),
+                             'tree_method': ('categorical', {'choices': ['auto', 'exact', 'approx', 'hist']}),
+                             'booster': ('categorical', {'choices': ['gbtree', 'dart']}),
+                             'sample_type': ('categorical', {'choices': ['uniform', 'weighted']}),
+                             'normalize_type': ('categorical', {'choices': ['tree', 'forest']})}
+        op.search(train[train[single_name + '_weight'] == 1][feature_names],
+                  train[train[single_name + '_weight'] == 1][single_name],
+                  tuning_param_dict, cv=1, coef_train_val_disparity=0.4, eval_metric=['roc_auc'],
+                  eval_set=[(test[test[single_name + '_weight'] == 1][feature_names],
+                             test[test[single_name + '_weight'] == 1][single_name])],
+                  optuna_verbosity=1, early_stopping_rounds=30, n_warmup_steps=10)
+        train_param = op.get_params()
+        print(train_param)
+        train_dmatrix = xgb.DMatrix(train[train[single_name + '_weight'] == 1][feature_names],
+                                    train[train[single_name + '_weight'] == 1][single_name])
+        model = xgb.train(train_param, train_dmatrix, num_boost_round=train_param['n_iterations'])
+        model.save_model(joint_symbol.join([checkpoint_dir, 'xgb']))
     else:
         best_metric = -1
         best_model = None
         for i in os.listdir(checkpoint_dir):
-            if i.find('best_model') >= 0:
-                metric = float(re.match('.*AUC(.*).h5', i)[1])
-                if metric > best_metric:
-                    best_metric = metric
-                    best_model = i
-        print('loading ', joint_symbol.join([checkpoint_dir, best_model]))
-        model = load_model(joint_symbol.join([checkpoint_dir, best_model]), custom_objects=custom_objects)
+            if i.find('xgb') >= 0:
+                model = xgb.Booster()
+                print('loading ', joint_symbol.join([checkpoint_dir, i]))
+                model.load_model(joint_symbol.join([checkpoint_dir, i]))
+                break
         file_writer = tf.summary.create_file_writer(summary_dir)
         print('final_result')
         for task_name in tasks.keys():
@@ -359,11 +273,12 @@ if __name__ == "__main__":
             fig.suptitle(run_name + '_' + task_name)
             for index, set_name in enumerate(['1train', '2test', '3oot']):
                 set_data = data[data['set'] == set_name]
-                predictions = model.predict({name: set_data[name] for name in feature_names})
-                auc_score = roc_auc_score(set_data[task_name].values, predictions[task_name][:, 0], sample_weight=set_data[task_name+'_mask'])
-                fpr, tpr, _ = roc_curve(set_data[task_name].values, predictions[task_name][:, 0], sample_weight=set_data[task_name+'_mask'])
+                dmatrix = xgb.DMatrix(set_data[feature_names], set_data[task_name])
+                predictions = model.predict(dmatrix)
+                auc_score = roc_auc_score(set_data[task_name].values, predictions, sample_weight=set_data[task_name+'_mask'])
+                fpr, tpr, _ = roc_curve(set_data[task_name].values, predictions, sample_weight=set_data[task_name+'_mask'])
                 ks = np.max(np.abs(tpr - fpr))
-                pred = predictions[task_name][:, 0]
+                pred = predictions
                 target = set_data[task_name].values
                 weight = set_data[task_name+'_mask'].values
                 pred = pred[weight != 0]
@@ -387,15 +302,16 @@ if __name__ == "__main__":
 
         print('cross_validation')
         set_data = data[data['set'] == '3oot']
-        predictions = model.predict({name: set_data[name] for name in feature_names})
+        dmatrix = xgb.DMatrix(set_data[feature_names])
+        predictions = model.predict(dmatrix)
         fig_cross = plt.figure(figsize=(8, 10))
         fig_cross.suptitle(run_name + '_cross')
         ax_cross = fig_cross.add_subplot(2, 1, 1)
         if single_name == 'fpd4':
-            df = pd.DataFrame({'pred': predictions['fpd4'][:, 0], 'target': set_data['istrans'].values})
+            df = pd.DataFrame({'pred': predictions, 'target': set_data['istrans'].values})
             _ = calc_cum(df, 'pred', 'target', ax=ax_cross, groupnum=10, title_name='istrans')
         elif single_name == 'istrans':
-            pred = predictions['istrans'][:, 0]
+            pred = predictions
             target = set_data['fpd4'].values
             weight = set_data['fpd4_mask'].values
             pred = pred[weight != 0]

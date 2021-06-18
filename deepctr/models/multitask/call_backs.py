@@ -10,7 +10,7 @@ import numpy as np
 
 
 class MyRecorder(Callback):
-    def __init__(self, log_dir, data, gradient_freq=1, experts_freq=None, batch_size=256):
+    def __init__(self, log_dir, data, gradient_freq=1, experts_freq=1, batch_size=256):
         self.gradient_freq = gradient_freq
         self.batch_size = batch_size
         self.experts_freq = experts_freq
