@@ -203,7 +203,7 @@ class MultiTaskModelBase(keras.Model):
             x, y, sample_weight = data
         else:
             x, y = data
-            sample_weight = {task_name: tf.constant(1.0) for task_name in y.keys()}
+            sample_weight = {task_name: tf.ones_like(tf.reduce_sum(y[task_name], axis=-1)) for task_name in y.keys()}
 
         with tf.GradientTape(persistent=True) as tape:
             with tf.GradientTape(persistent=True) as tape_weight_grad:
@@ -304,7 +304,7 @@ class MultiTaskModelBase(keras.Model):
             x, y, sample_weight = data
         else:
             x, y = data
-            sample_weight = {task_name: tf.constant(1.0) for task_name in y.keys()}
+            sample_weight = {task_name: tf.ones_like(tf.reduce_sum(y[task_name], axis=-1)) for task_name in y.keys()}
 
         with tf.GradientTape(persistent=True) as tape_weight_grad:
             y_pred = self(x, training=False)

@@ -36,7 +36,8 @@ if __name__ == "__main__":
     # configure
     project_name = 'preloan_istrans_overdue2'
     single_name = 'istrans'
-    run_name = 'xgb_expertfeatures_{}'.format(single_name)
+    run_name = 'xgb_expertfeatures_{}_mask'.format(single_name)
+    mode = 'test'
     if platform.system() == 'Windows':
         joint_symbol = '\\'
     else:
@@ -50,15 +51,22 @@ if __name__ == "__main__":
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
     tasks = {single_name: 'binary'}
-    loss_fns = {single_name: keras.losses.binary_crossentropy}
-    metrics_logger = {single_name: AUC}
-    uncertainty = False
-    gradnorm = False
+    if run_name.find('uncertainty') >= 0:
+        uncertainty = True
+    else:
+        uncertainty = False
+    if run_name.find('gradnorm') >= 0:
+        gradnorm = True
+    else:
+        gradnorm = False
+    if run_name.find('bias') >= 0:
+        add_bias = True
+    else:
+        add_bias = False
     batch_size = 256
-    mode = 'test'
 
     # read data
-    data = pd.read_csv('data/train_for_multi.csv')
+    data = pd.read_csv('data/train_for_multi2.csv')
     # fpd4
     # col_x = ['ali_rain_score',
     #          'td_zhixin_score',
@@ -186,15 +194,19 @@ if __name__ == "__main__":
     #          'hds_mobile_reli_rank',
     #          'hds_36m_doub11_12_total_purchase_money',
     #          'idcard_rural_flag']
+    bias_features = {'istrans': ['pre_loan_flag']}
     data['fpd4_weight'] = 1.0
     data['fpd4_mask'] = 1.0
-    if run_name.find('nomask') >= 0:
+    if run_name.find('fpd4_nomask') >= 0:
         data.loc[data['fpd4'].isnull(), 'fpd4_weight'] = 1.0
     else:
         data.loc[data['fpd4'].isnull(), 'fpd4_weight'] = 0.0
     data.loc[data['fpd4'].isnull(), 'fpd4_mask'] = 0
     data['istrans_weight'] = 1.0
     data['istrans_mask'] = 1.0
+    data.loc[data['pre_loan_flag'] == 1, 'istrans_mask'] = 0.0
+    if run_name.find('istrans_mask') >= 0:
+        data.loc[data['pre_loan_flag'] == 1, 'istrans_weight'] = 0.0
     data['fpd4'] = data['fpd4'].fillna(0)
     data[col_x] = data[col_x].fillna(-1)
 
@@ -214,12 +226,25 @@ if __name__ == "__main__":
                               for i, feat in enumerate(sparse_features)] + \
                              [DenseFeat(feat, 1, ) for feat in dense_features]
     dnn_feature_columns = fixlen_feature_columns
-    feature_names = get_feature_names(dnn_feature_columns)
+
+    if add_bias:
+        bias_feature_columns_list = []
+        for task_name, columns in bias_features.items():
+            bias_feature_columns = [SparseFeat(feat, vocabulary_size=data[feat].unique().shape[0], embedding_dim=8)
+                                    for i, feat in enumerate(columns)]
+            bias_feature_columns_list += bias_feature_columns
+        feature_names = get_feature_names(dnn_feature_columns + bias_feature_columns_list)
+        bias_feature_names = get_feature_names(bias_feature_columns_list)
+        for feat in bias_feature_names:
+            lbe = LabelEncoder()
+            data[feat] = lbe.fit_transform(data[feat])
+    else:
+        bias_feature_names = []
+        feature_names = get_feature_names(dnn_feature_columns)
 
     # generate input data for model
     train = data[data['set'] == '1train']
     test = data[data['set'] == '2test']
-    oot = data[data['set'] == '3oot']
 
     # train or predict
     if mode == 'train':
@@ -273,10 +298,12 @@ if __name__ == "__main__":
             fig.suptitle(run_name + '_' + task_name)
             for index, set_name in enumerate(['1train', '2test', '3oot']):
                 set_data = data[data['set'] == set_name]
+                for name in bias_feature_names:
+                    set_data[name] = [0] * set_data.shape[0]
                 dmatrix = xgb.DMatrix(set_data[feature_names], set_data[task_name])
                 predictions = model.predict(dmatrix)
-                auc_score = roc_auc_score(set_data[task_name].values, predictions, sample_weight=set_data[task_name+'_mask'])
-                fpr, tpr, _ = roc_curve(set_data[task_name].values, predictions, sample_weight=set_data[task_name+'_mask'])
+                auc_score = roc_auc_score(set_data[task_name].values, predictions, sample_weight=set_data[task_name+'_mask'].values)
+                fpr, tpr, _ = roc_curve(set_data[task_name].values, predictions, sample_weight=set_data[task_name+'_mask'].values)
                 ks = np.max(np.abs(tpr - fpr))
                 pred = predictions
                 target = set_data[task_name].values
@@ -300,8 +327,66 @@ if __name__ == "__main__":
                     tf.summary.scalar(task_name+'_auc', auc_score, step=index+1)
             fig.savefig(joint_symbol.join([trend_dir, task_name]))
 
+        print('bias_study')
+        for task_name in bias_features.keys():
+            for bias_task in ['biased', 'all']:
+                fig = plt.figure(figsize=(8, 10))
+                fig.suptitle(run_name + '_' + task_name + '_' + bias_task)
+                for index, set_name in enumerate(['1train', '2test', '3oot']):
+                    set_data = data[data['set'] == set_name]
+                    if bias_task == 'biased':
+                        masks = -set_data[task_name+'_mask'].values
+                        masks[masks == 0.0] = 1.0
+                        masks[masks == -1.0] = 0.0
+                    else:
+                        masks = set_data[task_name+'_mask'].values
+                        masks[masks != 1.0] = 1.0
+                    for name in bias_feature_names:
+                        set_data[name] = [0]*set_data.shape[0]
+                    dmatrix = xgb.DMatrix(set_data[feature_names], set_data[task_name])
+                    predictions = model.predict(dmatrix)
+                    auc_score = roc_auc_score(set_data[task_name].values, predictions, sample_weight=masks)
+                    fpr, tpr, _ = roc_curve(set_data[task_name].values, predictions, sample_weight=masks)
+                    ks = np.max(np.abs(tpr - fpr))
+                    pred = predictions
+                    target = set_data[task_name].values
+                    weight = masks
+                    pred = pred[weight != 0]
+                    target = target[weight != 0]
+                    if set_name == '1train':
+                        expected = pred
+                        title = '{} ks_{:.2f} auc_{:.2f}'.format(set_name, ks, auc_score)
+                    elif set_name == '2test':
+                        psi = cal_psi_score(pred, expected)
+                        title = '{} ks_{:.2f} auc_{:.2f} psi_{:.2f}'.format(set_name, ks, auc_score, psi)
+                    else:
+                        title = '{} ks_{:.2f} auc_{:.2f}'.format(set_name, ks, auc_score)
+                    df = pd.DataFrame({'pred': pred, 'target': target})
+                    ax = fig.add_subplot(3, 1, index+1)
+                    _ = calc_lift(df, 'pred', 'target', ax=ax, groupnum=10, title_name=title)
+                    print(' {}_{}: {} auc {:4f} ks {:4f}'.format(task_name, bias_task, set_name, auc_score, ks))
+                    with file_writer.as_default():
+                        tf.summary.scalar(task_name+'_'+bias_task+'_ks', ks, step=index+1)
+                        tf.summary.scalar(task_name+'_'+bias_task+'_auc', auc_score, step=index+1)
+                    if (bias_task == 'biased') & (set_name == '3oot'):
+                        pred = predictions
+                        weight = masks
+                        fig2, ax2 = plt.subplots()
+                        _, _, _ = ax2.hist(pred[weight == 1.0], bins=50, density=True, alpha=1)
+                        _, _, _ = ax2.hist(pred[weight == 0.0], bins=50, density=True, alpha=0.2)
+                        title = 'biased_1: {:.2f} biased_0: {:.2f} gap: {:.2f}'.format(
+                            pred[weight == 1.0].mean(),
+                            pred[weight == 0.0].mean(),
+                            abs(pred[weight == 1.0].mean() - pred[weight == 0.0].mean()))
+                        ax2.legend(['biased_1', 'biased_0'])
+                        fig2.suptitle(run_name + '_' + task_name + '_' + set_name + '\n' + title)
+                        fig2.savefig(joint_symbol.join([trend_dir, task_name+'_'+set_name+'_hist']))
+                fig.savefig(joint_symbol.join([trend_dir, task_name+'_'+bias_task]))
+
         print('cross_validation')
         set_data = data[data['set'] == '3oot']
+        for name in bias_feature_names:
+            set_data[name] = [0] * set_data.shape[0]
         dmatrix = xgb.DMatrix(set_data[feature_names])
         predictions = model.predict(dmatrix)
         fig_cross = plt.figure(figsize=(8, 10))

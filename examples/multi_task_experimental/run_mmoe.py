@@ -21,7 +21,7 @@ import kerastuner as kt
 from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 from deepctr.feature_column import SparseFeat, DenseFeat, get_feature_names
-from deepctr.models.multitask.mmoe import MMOE, MMOELayer
+from deepctr.models.multitask.mmoe import MMOE, MMOELayer, MMOE_BIAS
 from deepctr.models.multitask.call_backs import MyEarlyStopping, MyRecorder
 from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
 from deepctr.models.multitask.utils import calc_lift, cal_psi_score, calc_cum
@@ -34,7 +34,8 @@ custom_objects['AUC'] = AUC
 
 
 def build_model(hp):
-    num_layers = hp.Int('num_bottom_layers', 1, 2, step=1)
+    # num_layers = hp.Int('num_bottom_layers', 1, 2, step=1)
+    num_layers = 1
     bottom_shared_units = []
     for i in range(num_layers):
         bottom_shared_units.append(hp.Int('dnn_hidden_unit_' + str(i), 32, 128, step=32))
@@ -43,21 +44,21 @@ def build_model(hp):
     expert_dim = hp.Int('expert_dim', 4, 12, step=4)
     l2_reg_embedding = hp.Float('l2_reg_embedding', 1e-5, 0.5, sampling='log')
     l2_reg_dnn = hp.Float('l2_reg_dnn', 1e-5, 0.5, sampling='log')
-    dnn_dropout = hp.Float('dnn_dropout', 0.0, 0.5)
-    model = MMOE(dnn_feature_columns,
-                 tasks,
-                 num_experts=num_experts,
-                 expert_dim=expert_dim,
-                 bottom_shared_units=bottom_shared_units,
-                 bottom_shared_use_bn=bottom_shared_use_bn,
-                 l2_reg_embedding=l2_reg_embedding,
-                 l2_reg_dnn=l2_reg_dnn,
-                 dnn_dropout=dnn_dropout,
-                 )
+    model = MMOE_BIAS(dnn_feature_columns,
+                      tasks,
+                      bias_feature_columns_dict,
+                      bias_dropout_dict,
+                      num_experts=num_experts,
+                      expert_dim=expert_dim,
+                      bottom_shared_units=bottom_shared_units,
+                      bottom_shared_use_bn=bottom_shared_use_bn,
+                      l2_reg_embedding=l2_reg_embedding,
+                      l2_reg_dnn=l2_reg_dnn,
+                      )
     if gradnorm:
         last_shared_weights = [weight for weight in model.get_layer('mmoe_layer').trainable_weights
                                if weight.name.find('expert') >= 0]
-        gradnorm_config = {'alpha': hp.Float('l2_reg_dnn', 0.1, 0.8, step=0.1),
+        gradnorm_config = {'alpha': hp.Float('l2_reg_dnn', 0.1, 1.5, step=0.1),
                            'last_shared_weights': last_shared_weights}
     else:
         gradnorm_config = None
@@ -72,7 +73,8 @@ def build_model(hp):
 if __name__ == "__main__":
     # configure
     project_name = 'preloan_istrans_overdue2'
-    run_name = 'gradnorm_weight_fpd4_nomask'
+    run_name = 'uncertainty_weight_fpd4_mask_istrans_mask'
+    mode = 'test'
     if platform.system() == 'Windows':
         joint_symbol = '\\'
     else:
@@ -91,13 +93,23 @@ if __name__ == "__main__":
     metrics_logger = {'istrans': AUC,
                       'fpd4': AUC}
     loss_weights = {'istrans': 1, 'fpd4': 6}
-    uncertainty = True
-    gradnorm = True
+    if run_name.find('uncertainty') >= 0:
+        uncertainty = True
+    else:
+        uncertainty = False
+    if run_name.find('gradnorm') >= 0:
+        gradnorm = True
+    else:
+        gradnorm = False
+    if run_name.find('bias') >= 0:
+        add_bias = True
+    else:
+        add_bias = False
     batch_size = 256
-    mode = 'test'
+
 
     # read data
-    data = pd.read_csv('data/train_for_multi.csv')
+    data = pd.read_csv('data/train_for_multi2.csv')
     col_x = ['td_i_cnt_partner_all_imbank_365d',
              'duotou_br_als_m3_id_pdl_allnum',
              'marketing_channel_pred_1',
@@ -160,15 +172,20 @@ if __name__ == "__main__":
                        'operation_sys',
                        'hds_mobile_reli_rank',
                        'idcard_rural_flag']
+    bias_features = {'istrans': ['pre_loan_flag']}
+    bias_dropout_dict = {'istrans': 0.1, 'fpd4': 0.1}
     data['fpd4_weight'] = 1.0
     data['fpd4_mask'] = 1.0
-    if run_name.find('nomask') >= 0:
+    if run_name.find('fpd4_nomask') >= 0:
         data.loc[data['fpd4'].isnull(), 'fpd4_weight'] = 1.0
     else:
         data.loc[data['fpd4'].isnull(), 'fpd4_weight'] = 0.0
     data.loc[data['fpd4'].isnull(), 'fpd4_mask'] = 0
     data['istrans_weight'] = 1.0
     data['istrans_mask'] = 1.0
+    data.loc[data['pre_loan_flag'] == 1, 'istrans_mask'] = 0.0
+    if run_name.find('istrans_mask') >= 0:
+        data.loc[data['pre_loan_flag'] == 1, 'istrans_weight'] = 0.0
     data['fpd4'] = data['fpd4'].fillna(0)
     data[col_x] = data[col_x].fillna(-1)
 
@@ -188,15 +205,32 @@ if __name__ == "__main__":
                               for i, feat in enumerate(sparse_features)] + \
                              [DenseFeat(feat, 1, ) for feat in dense_features]
     dnn_feature_columns = fixlen_feature_columns
-    feature_names = get_feature_names(dnn_feature_columns)
+
+    if add_bias:
+        bias_feature_columns_dict = {}
+        bias_feature_columns_list = []
+        for task_name, columns in bias_features.items():
+            bias_feature_columns = [SparseFeat(feat, vocabulary_size=data[feat].unique().shape[0], embedding_dim=8)
+                                    for i, feat in enumerate(columns)]
+            bias_feature_columns_list += bias_feature_columns
+            bias_feature_columns_dict[task_name] = bias_feature_columns
+        feature_names = get_feature_names(dnn_feature_columns + bias_feature_columns_list)
+        bias_feature_names = get_feature_names(bias_feature_columns_list)
+        for feat in bias_feature_names:
+            lbe = LabelEncoder()
+            data[feat] = lbe.fit_transform(data[feat])
+    else:
+        bias_feature_columns_dict = None
+        bias_dropout_dict = None
+        bias_feature_names = []
+        feature_names = get_feature_names(dnn_feature_columns)
+
 
     # generate input data for model
     train = data[data['set'] == '1train']
     test = data[data['set'] == '2test']
-    oot = data[data['set'] == '3oot']
     model_input = {name: train[name] for name in feature_names}
     test_model_input = {name: test[name] for name in feature_names}
-    oot_model_input = {name: oot[name] for name in feature_names}
     model_batch_input = {name: train[name].iloc[:1] for name in feature_names}
     callback_data = (test_model_input,
                      {'istrans': test[['istrans']],
@@ -217,24 +251,38 @@ if __name__ == "__main__":
 
     # train or predict
     if mode == 'train':
-        model = MMOE(dnn_feature_columns,
-                     tasks,
-                     num_experts=8,
-                     expert_dim=8,
-                     bottom_shared_units=(96,),
-                     bottom_shared_use_bn=True,
-                     l2_reg_embedding=1e-05,
-                     l2_reg_dnn=0.00025204,
-                     dnn_dropout=0.5)
+        # model = MMOE_BIAS(dnn_feature_columns,
+        #                   tasks,
+        #                   bias_feature_columns_dict,
+        #                   bias_dropout_dict,
+        #                   num_experts=12,
+        #                   expert_dim=4,
+        #                   bottom_shared_units=(128,),
+        #                   bottom_shared_use_bn=False,
+        #                   l2_reg_embedding=1e-05,
+        #                   l2_reg_dnn=1e-05
+        #                   )
+        model = MMOE_BIAS(dnn_feature_columns,
+                          tasks,
+                          bias_feature_columns_dict,
+                          bias_dropout_dict,
+                          num_experts=6,
+                          expert_dim=12,
+                          bottom_shared_units=(64,),
+                          bottom_shared_use_bn=True,
+                          l2_reg_embedding=0.0021129,
+                          l2_reg_dnn=0.070863
+                          )
         # plot_model(aa, to_file=joint_symbol.join([checkpoint_dir, 'model_viz.png']), show_shapes=True,
         #            show_layer_names=True)
         if gradnorm:
             last_shared_weights = [weight for weight in model.get_layer('mmoe_layer').trainable_weights
                                    if weight.name.find('expert') >= 0]
-            gradnorm_config = {'alpha': 0.1, 'last_shared_weights': last_shared_weights}
+            gradnorm_config = {'alpha': 1, 'last_shared_weights': last_shared_weights}
         else:
             gradnorm_config = None
-        last_lr = 0.0029
+        # last_lr = 0.003
+        last_lr = 0.0018228
         optimizers = keras.optimizers.Adam(learning_rate=last_lr)
         model.compile(optimizers=optimizers,
                       loss_fns=loss_fns,
@@ -323,9 +371,10 @@ if __name__ == "__main__":
             fig.suptitle(run_name + '_' + task_name)
             for index, set_name in enumerate(['1train', '2test', '3oot']):
                 set_data = data[data['set'] == set_name]
-                predictions = model.predict({name: set_data[name] for name in feature_names})
-                auc_score = roc_auc_score(set_data[task_name].values, predictions[task_name][:, 0], sample_weight=set_data[task_name+'_mask'])
-                fpr, tpr, _ = roc_curve(set_data[task_name].values, predictions[task_name][:, 0], sample_weight=set_data[task_name+'_mask'])
+                predictions = model.predict({name: set_data[name] if name not in bias_feature_names
+                    else pd.Series([0]*set_data.shape[0], index=set_data.index) for name in feature_names})
+                auc_score = roc_auc_score(set_data[task_name].values, predictions[task_name][:, 0], sample_weight=set_data[task_name+'_mask'].values)
+                fpr, tpr, _ = roc_curve(set_data[task_name].values, predictions[task_name][:, 0], sample_weight=set_data[task_name+'_mask'].values)
                 ks = np.max(np.abs(tpr - fpr))
                 pred = predictions[task_name][:, 0]
                 target = set_data[task_name].values
@@ -348,10 +397,80 @@ if __name__ == "__main__":
                     tf.summary.scalar(task_name+'_ks', ks, step=index+1)
                     tf.summary.scalar(task_name+'_auc', auc_score, step=index+1)
             fig.savefig(joint_symbol.join([trend_dir, task_name]))
+
+        print('bias_study')
+        for task_name in bias_features.keys():
+            if add_bias:
+                bias_weights_series = pd.Series()
+                for variable in [variable for variable in model.trainable_variables if variable.name.find(task_name+'_bias_') >= 0]:
+                    bias_weights = variable.numpy()[:, 0].tolist()
+                    bias_names = [variable.name.replace('sparse_emb_', '').
+                                      replace(task_name+'_bias_', '').
+                                      replace('embeddings:0', '') + str(i) for i in range(len(bias_weights))]
+                    bias_weights_series = bias_weights_series.append(pd.Series(bias_weights, index=bias_names))
+                fig, ax = plt.subplots()
+                bias_weights_series.plot(ax=ax, kind='bar')
+                ax.set_xticks(range(bias_weights_series.shape[0]))
+                ax.set_xticklabels(labels=bias_weights_series.index, rotation=-20, horizontalalignment='left')
+                fig.savefig(joint_symbol.join([trend_dir, task_name + '_bias_weights']), bbox_inches='tight')
+
+            for bias_task in ['biased', 'all']:
+                fig = plt.figure(figsize=(8, 10))
+                fig.suptitle(run_name + '_' + task_name + '_' + bias_task)
+                for index, set_name in enumerate(['1train', '2test', '3oot']):
+                    set_data = data[data['set'] == set_name]
+                    if bias_task == 'biased':
+                        masks = -set_data[task_name+'_mask'].values
+                        masks[masks == 0.0] = 1.0
+                        masks[masks == -1.0] = 0.0
+                    else:
+                        masks = set_data[task_name+'_mask'].values
+                        masks[masks != 1.0] = 1.0
+                    predictions = model.predict({name: set_data[name] if name not in bias_feature_names
+                    else pd.Series([0]*set_data.shape[0], index=set_data.index) for name in feature_names})
+                    auc_score = roc_auc_score(set_data[task_name].values, predictions[task_name][:, 0], sample_weight=masks)
+                    fpr, tpr, _ = roc_curve(set_data[task_name].values, predictions[task_name][:, 0], sample_weight=masks)
+                    ks = np.max(np.abs(tpr - fpr))
+                    pred = predictions[task_name][:, 0]
+                    target = set_data[task_name].values
+                    weight = masks
+                    pred = pred[weight != 0]
+                    target = target[weight != 0]
+                    if set_name == '1train':
+                        expected = pred
+                        title = '{} ks_{:.2f} auc_{:.2f}'.format(set_name, ks, auc_score)
+                    elif set_name == '2test':
+                        psi = cal_psi_score(pred, expected)
+                        title = '{} ks_{:.2f} auc_{:.2f} psi_{:.2f}'.format(set_name, ks, auc_score, psi)
+                    else:
+                        title = '{} ks_{:.2f} auc_{:.2f}'.format(set_name, ks, auc_score)
+                    df = pd.DataFrame({'pred': pred, 'target': target})
+                    ax = fig.add_subplot(3, 1, index+1)
+                    _ = calc_lift(df, 'pred', 'target', ax=ax, groupnum=10, title_name=title)
+                    print(' {}_{}: {} auc {:4f} ks {:4f}'.format(task_name, bias_task, set_name, auc_score, ks))
+                    with file_writer.as_default():
+                        tf.summary.scalar(task_name+'_'+bias_task+'_ks', ks, step=index+1)
+                        tf.summary.scalar(task_name+'_'+bias_task+'_auc', auc_score, step=index+1)
+                    if (bias_task == 'biased') & (set_name == '3oot'):
+                        pred = predictions[task_name][:, 0]
+                        weight = masks
+                        fig2, ax2 = plt.subplots()
+                        _, _, _ = ax2.hist(pred[weight == 1.0], bins=50, density=True, alpha=1)
+                        _, _, _ = ax2.hist(pred[weight == 0.0], bins=50, density=True, alpha=0.2)
+                        title = 'biased_1: {:.2f} biased_0: {:.2f} gap: {:.2f}'.format(
+                            pred[weight == 1.0].mean(),
+                            pred[weight == 0.0].mean(),
+                            abs(pred[weight == 1.0].mean() - pred[weight == 0.0].mean()))
+                        ax2.legend(['biased_1', 'biased_0'])
+                        fig2.suptitle(run_name + '_' + task_name + '_' + set_name + '\n' + title)
+                        fig2.savefig(joint_symbol.join([trend_dir, task_name+'_'+set_name+'_hist']))
+                fig.savefig(joint_symbol.join([trend_dir, task_name+'_'+bias_task]))
+
         print('plot experts')
         set_name = '3oot'
         set_data = data[data['set'] == set_name]
-        intermediate_results = intermediate_model.predict({name: set_data[name].values for name in feature_names})
+        intermediate_results = intermediate_model.predict({name: set_data[name] if name not in bias_feature_names
+                    else pd.Series([0]*set_data.shape[0], index=set_data.index) for name in feature_names})
         fig2 = plt.figure(figsize=(8, 10))
         fig2.suptitle(run_name + '_experts')
         for layer_index, (layer_name, layer_outputs) in enumerate(intermediate_results.items()):
@@ -369,7 +488,8 @@ if __name__ == "__main__":
 
         print('cross_validation')
         set_data = data[data['set'] == '3oot']
-        predictions = model.predict({name: set_data[name] for name in feature_names})
+        predictions = model.predict({name: set_data[name] if name not in bias_feature_names
+                    else pd.Series([0]*set_data.shape[0], index=set_data.index) for name in feature_names})
         fig_cross = plt.figure(figsize=(8, 10))
         fig_cross.suptitle(run_name + '_cross')
         ax_cross = fig_cross.add_subplot(2, 1, 1)

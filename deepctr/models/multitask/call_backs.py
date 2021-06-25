@@ -20,6 +20,7 @@ class MyRecorder(Callback):
             self.joint_symbol = '/'
         self.writer = tf.summary.create_file_writer(self.joint_symbol.join([log_dir, 'callback']))
         self.data = data
+        self.initial_task_losses = {}
         super(MyRecorder, self).__init__()
 
     def _log_experts(self, epoch):
@@ -46,7 +47,7 @@ class MyRecorder(Callback):
             x, y, sample_weight = self.data
         else:
             x, y = self.data
-            sample_weight = {task_name: tf.constant(1.0) for task_name in y.keys()}
+            sample_weight = {task_name: tf.ones_like(tf.reduce_sum(y[task_name],  axis=-1)) for task_name in y.keys()}
 
         with tf.GradientTape(persistent=True) as tape:
             with tf.GradientTape(persistent=True) as tape_weight_grad:
@@ -56,14 +57,17 @@ class MyRecorder(Callback):
                     # renormalize the dynamic_weights to make them add up to the number of tasks
                     normalize_coeff = len(self.model.dynamic_weights) / \
                                       tf.reshape(tf.reduce_sum(list(self.model.dynamic_weights.values())), (1,))
-                    task_losses = {}
                     weighted_task_losses = {}
+                task_losses = {}
                 for task_name, loss_fn in self.model.loss_fns.items():
                     if loss_fn is not None:
                         # loss = loss_fn(y[task_name], y_pred[task_name], sample_weight=sample_weight[task_name])
                         masks = tf.cast(sample_weight[task_name], tf.float32)
                         loss = tf.reduce_sum(tf.multiply(loss_fn(y[task_name], y_pred[task_name]), masks)) / \
                                tf.reduce_sum(masks)
+                        if not self.initial_task_losses.get(task_name):
+                            self.initial_task_losses[task_name] = loss
+                        task_losses[task_name] = loss
                         if self.model.uncertainty and (self.model.gradnorm_config is None):
                             precision = K.exp(-self.model.log_vars[task_name])
                             loss = precision * loss + self.model.log_vars[task_name]
@@ -71,9 +75,6 @@ class MyRecorder(Callback):
                         elif self.model.gradnorm_config is not None:
                             self.model.dynamic_weights[task_name].assign(
                                 tf.multiply(self.model.dynamic_weights[task_name], normalize_coeff))
-                            task_losses[task_name] = loss
-                            if self.model.optimizers.iterations == 0:
-                                self.model.initial_task_losses[task_name] = loss
                             loss *= self.model.dynamic_weights[task_name]
                             weighted_task_losses[task_name] = loss
                             total_loss += loss
@@ -90,7 +91,7 @@ class MyRecorder(Callback):
                     weight_grad = tape_weight_grad.gradient(weighted_task_losses[task_name], self.model.last_shared_weights)
                     weight_grad_norm = tf.reduce_sum([tf.norm(i, ord=2) for i in weight_grad])
                     weight_grad_norms[task_name] = weight_grad_norm
-                    task_loss_ratios[task_name] = task_losses[task_name] / self.model.initial_task_losses[task_name]
+                    task_loss_ratios[task_name] = task_losses[task_name] / self.initial_task_losses[task_name]
                 mean_grad_norm = tf.reduce_mean(list(weight_grad_norms.values()))
                 inverse_task_loss_ratios = tf.stack(list(task_loss_ratios.values())) \
                                            / tf.reduce_mean(list(task_loss_ratios.values()))
@@ -98,6 +99,14 @@ class MyRecorder(Callback):
                 grad_norms_loss = tf.norm(tf.stack(list(weight_grad_norms.values())) - target_grad_norms, ord=1)
 
         with self.writer.as_default():
+            total_converge_speed = 0
+            for task_name, _ in self.model.loss_fns.items():
+                converge_speed = task_losses[task_name] / self.initial_task_losses[task_name]
+                tf.summary.scalar(task_name + '_converge_speed',
+                                  data=converge_speed,
+                                  step=epoch)
+                total_converge_speed += converge_speed
+            tf.summary.scalar('total_converge_speed', data=total_converge_speed, step=epoch)
             if self.model.gradnorm_config is not None:
                 original_weights = [trainable_weight for trainable_weight in self.model.trainable_weights
                                     if trainable_weight.name.find('dyna_weight') < 0]

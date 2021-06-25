@@ -12,8 +12,8 @@ from tensorflow.python.keras.layers import Layer
 from tensorflow.python.keras.initializers import glorot_normal, Zeros
 from tensorflow.python.keras import activations
 
-from deepctr.feature_column import build_input_features, input_from_feature_columns
-from deepctr.layers.utils import combined_dnn_input
+from deepctr.feature_column import build_input_features, input_from_feature_columns, get_linear_logit
+from deepctr.layers.utils import combined_dnn_input, add_func
 from deepctr.layers.core import PredictionLayer, DNN
 from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
 
@@ -237,5 +237,108 @@ def MMOE(dnn_feature_columns, tasks, num_experts=4, expert_dim=8,
     #     model = tf.keras.models.Model(inputs=inputs_list, outputs=task_outputs)
     #     return model
 
+    model = MultiTaskModelBase(inputs=inputs_list, outputs=task_outputs)
+    return model
+
+
+def MMOE_BIAS(dnn_feature_columns, tasks, bias_feature_columns_dict=None, bias_dropout_dict=None, bias_l2_reg=1e-5,
+              num_experts=4, expert_dim=8,
+              bottom_shared_units=(128, 128), bottom_shared_use_bn=False,
+              l2_reg_embedding=1e-5, l2_reg_dnn=0,
+              dnn_dropout=0, dnn_activation='relu',
+              task_dnn_units=None, task_use_bn=False, seed=1024):
+    """Instantiates the Multi-gate Mixture-of-Experts architecture.
+
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param tasks: dict, indicating the loss of each tasks, ``"binary"`` for  binary logloss, ``"regression"``
+    for regression loss. e.g. {'task1': 'binary', 'task2': 'regression'}
+    :param bias_feature_columns_dict: dict. e.g. {'task1': [feature_column1, 2...], 'task2': [feature_column1, 3...]}
+    :param bias_dropout_dict: dict. e.g. {'task1': 0.2, 'task2': 0.3}
+    :param bias_l2_reg: float.
+    :param num_experts: integer, number of experts.
+    :param expert_dim: integer, the hidden units of each expert.
+    :param bottom_shared_units: list,list of positive integer or empty list, the layer number and units in each layer
+    of shared-bottom DNN
+    :param bottom_shared_use_bn: bool, whether to use batch normalization in bottom shared dnn
+    :param l2_reg_embedding: float. L2 regularizer strength applied to embedding vector
+    :param l2_reg_dnn: float. L2 regularizer strength applied to DNN
+    :param task_dnn_units: list,list of positive integer or empty list, the layer number and units in each layer
+    of task-specific DNN
+    :param task_use_bn: whether to use batch normalization in task towers
+    :param seed: integer ,to use as random seed.
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param dnn_activation: Activation function to use in DNN
+
+    :return: If use_uncertainty is False, return a Keras model instance, otherwise,
+    return a tuple (prediction_model, train_model).
+    train_model should be compiled and fit data first, and then prediction_model is used for prediction.
+    """
+    num_tasks = len(tasks)
+    if num_tasks <= 1:
+        raise ValueError("num_tasks must be greater than 1")
+
+    bias_feature_columns_list = []
+    if bias_feature_columns_dict:
+        for columns in bias_feature_columns_dict.values():
+            bias_feature_columns_list += columns
+    features = build_input_features(dnn_feature_columns + bias_feature_columns_list)
+
+    inputs_list = list(features.values())
+
+    sparse_embedding_list, dense_value_list = input_from_feature_columns(features, dnn_feature_columns,
+                                                                         l2_reg_embedding, seed)
+
+    dnn_input = combined_dnn_input(sparse_embedding_list, dense_value_list)
+
+
+    # if bias_feature_columns:
+    #     bias_features_dict = OrderedDict()
+    #     bias_input = {}
+    #     for task_name in bias_feature_columns.keys():
+    #         bias_features = build_input_features(bias_feature_columns[task_name])
+    #         bias_features_dict.update(bias_features)
+    #         sparse_embedding_list, dense_value_list = input_from_feature_columns(bias_features, bias_feature_columns[task_name],
+    #                                                                              l2_reg_embedding, seed)
+    #         bias_input[task_name] = combined_dnn_input(sparse_embedding_list, dense_value_list)
+    #     bias_inputs_list = list(bias_features.values())
+    #     inputs_list += bias_inputs_list
+    if bottom_shared_units is not None:
+        dnn_input = DNN(bottom_shared_units, dnn_activation, l2_reg_dnn, dnn_dropout,
+                        bottom_shared_use_bn, seed=seed, name='bottom_shared_dnn')(dnn_input)
+
+    mmoe_outs = MMOELayer(list(tasks.keys()), num_experts, expert_dim, dnn_activation, seed)(dnn_input)
+
+    task_outputs = {}
+    for mmoe_out, task_name, task_type in zip(mmoe_outs.values(), tasks.keys(), tasks.values()):
+        if task_dnn_units != None:
+            mmoe_out = DNN(task_dnn_units,
+                           dnn_activation,
+                           l2_reg_dnn,
+                           dnn_dropout,
+                           task_use_bn,
+                           seed=seed,
+                           name=task_name+'_dnn')(mmoe_out)
+        logit = tf.keras.layers.Dense(
+            1, use_bias=False, activation=None, name=task_name+'_logit')(mmoe_out)
+
+        if bias_feature_columns_dict and bias_feature_columns_dict.get(task_name):
+            bias_logit = get_linear_logit(features, bias_feature_columns_dict[task_name], seed=seed,
+                                          prefix=task_name+'_bias_', l2_reg=bias_l2_reg)
+            bias_logit = tf.reshape(bias_logit, (-1, logit.shape[-1]))
+            bias_logit = tf.keras.layers.Dropout(bias_dropout_dict[task_name], seed=seed)(bias_logit)
+            logit = add_func([logit, bias_logit])
+        output = PredictionLayer(task_type, name=task_name+'_prediction')(logit)
+        task_outputs[task_name] = output
+
+    # if use_uncertainty:
+    #     ys_true = [Input(shape=(1,)) for _ in tasks]
+    #     loss_layer_inputs = ys_true + task_outputs
+    #     model_out = MultiLossLayer(tasks)(loss_layer_inputs)
+    #     model_inputs = inputs_list + ys_true
+    #     model = tf.keras.models.Model(model_inputs, model_out)
+    #     return model
+    # else:
+    #     model = tf.keras.models.Model(inputs=inputs_list, outputs=task_outputs)
+    #     return model
     model = MultiTaskModelBase(inputs=inputs_list, outputs=task_outputs)
     return model
