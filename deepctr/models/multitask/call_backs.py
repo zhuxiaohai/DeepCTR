@@ -5,8 +5,48 @@ from tensorflow.python.keras.callbacks import Callback
 from tensorflow.python.keras.models import save_model, Model
 from tensorflow.python.keras import backend as K
 from tensorflow.python.keras.layers import Lambda
+from tensorflow.python.framework import ops
+from tensorflow.python.ops import math_ops
+from tensorflow.python.util.tf_export import keras_export
+from tensorflow.keras.optimizers.schedules import LearningRateSchedule
 
 import numpy as np
+
+
+@keras_export("keras.optimizers.schedules.ModifiedExponentialDecay")
+class ModifiedExponentialDecay(LearningRateSchedule):
+    def __init__(
+            self,
+            initial_learning_rate=0.01,
+            decay_rate=0.75,
+            alpha=0.0067,
+            name=None):
+        super(ModifiedExponentialDecay, self).__init__()
+        self.initial_learning_rate = initial_learning_rate
+        self.decay_rate = decay_rate
+        self.alpha = alpha
+        self.name = name
+
+    def __call__(self, step):
+        with ops.name_scope_v2(self.name or "ModifiedExponentialDecay") as name:
+            initial_learning_rate = ops.convert_to_tensor_v2(
+                self.initial_learning_rate, name="initial_learning_rate")
+            dtype = initial_learning_rate.dtype
+            decay_rate = math_ops.cast(self.decay_rate, dtype)
+            alpha = math_ops.cast(self.alpha, dtype)
+
+            global_step_recomp = math_ops.cast(step, dtype)
+            p = global_step_recomp
+            return math_ops.multiply(
+                initial_learning_rate, math_ops.pow((1. + alpha * p), -decay_rate), name=name)
+
+    def get_config(self):
+        return {
+            "initial_learning_rate": self.initial_learning_rate,
+            "decay_rate": self.decay_rate,
+            "alpha": self.alpha,
+            "name": self.name
+        }
 
 
 class MyRecorder(Callback):
