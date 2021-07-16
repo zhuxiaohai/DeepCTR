@@ -8,15 +8,16 @@ Reference:
 """
 
 import tensorflow as tf
-from tensorflow.python.keras.layers import Dense, Input, Permute
+from tensorflow.python.keras.layers import Dense, Input, Permute, Concatenate
 from tensorflow.python.keras.initializers import glorot_normal, Zeros
+from tensorflow.python.keras.regularizers import l2
 from tensorflow.python.keras.layers import Layer
 
 from deepctr.feature_column import SparseFeat, VarLenSparseFeat, DenseFeat, build_input_features
 from deepctr.inputs import create_embedding_matrix, embedding_lookup, get_dense_input
 from deepctr.layers.core import DNN, PredictionLayer
 from deepctr.layers.sequence import DynamicGRU
-from deepctr.layers.utils import combined_dnn_input, softmax
+from deepctr.layers.utils import combined_dnn_input, softmax, concat_func
 
 
 class RnnAttentionalLayer(Layer):
@@ -59,7 +60,7 @@ class RnnAttentionalLayer(Layer):
                         len(input_shape[0]), len(input_shape[1])))
         else:
             pass
-        hidden_size = input_shape[0][-1].value
+        hidden_size = input_shape[0][-1]
         self.attention_W = self.add_weight(shape=(hidden_size, self.attention_factor),
                                            initializer=glorot_normal(seed=self.seed),
                                            regularizer=l2(self.l2_reg_w),
@@ -165,37 +166,37 @@ def evolution(concat_behavior, user_behavior_length,
 
 
 def TimeSeries(constant_feature_columns, behavior_feature_columns, behavior_sparse_indicator,
-        use_bn=False, dnn_hidden_units=(200, 80), dnn_activation='dice',
-        l2_reg_dnn=0, l2_reg_embedding=1e-6, dnn_dropout=0, seed=1024, task='binary'):
+               gru_type="AVGRU", gru_hidden_size=8, gru_attention_w_dim=4, gru_attention_w_l2=0.1,
+               dnn_hidden_units=(200, 80), dnn_activation='dice', dnn_use_bn=False,
+               l2_reg_embedding=1e-6, l2_reg_dnn=0, dnn_dropout=0, seed=1024, task='binary'):
     """
-    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param constant_feature_columns: An iterable containing all constant features
+    :param behavior_feature_columns: An iterable containing all timeseries features
     :param behavior_sparse_indicator: list,to indicate  sequence sparse field
-    :param gru_type: str,can be GRU AIGRU AUGRU AGRU
-    :param use_negsampling: bool, whether or not use negtive sampling
-    :param alpha: float ,weight of auxiliary_loss
-    :param use_bn: bool. Whether use BatchNormalization before activation or not in deep net
+    :param gru_type: str
+    :param gru_hidden_size: int
+    :param gru_attention_w_dim: int
+    :param gru_attention_w_l2: float
     :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer of DNN
     :param dnn_activation: Activation function to use in DNN
-    :param att_hidden_units: list,list of positive integer , the layer number and units in each layer of attention net
-    :param att_activation: Activation function to use in attention net
-    :param att_weight_normalization: bool.Whether normalize the attention score of local activation unit.
-    :param l2_reg_dnn: float. L2 regularizer strength applied to DNN
+    :param dnn_use_bn: bool. Whether use BatchNormalization before activation or not in deep net
     :param l2_reg_embedding: float. L2 regularizer strength applied to embedding vector
+    :param l2_reg_dnn: float. L2 regularizer strength applied to DNN
     :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
-    :param init_std: float,to use as the initialize std of embedding vector
     :param seed: integer ,to use as random seed.
-    :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+    :param task: str, ``"binary"`` for  binary logloss or ``"regression"`` for regression loss
     :return: A Keras model instance.
-
     """
     features = build_input_features(constant_feature_columns + behavior_feature_columns)
-    features['seq_length'] = Input((1,), name='seq_length', dtype='int32')
+
+    features['seq_length'] = features.get('seq_length', Input((1,), name='seq_length', dtype='int32'))
     user_behavior_length = features['seq_length']
 
     constant_sparse_feature_columns = list(
         filter(lambda x: isinstance(x, SparseFeat), constant_feature_columns) if constant_feature_columns else [])
     constant_dense_feature_columns = list(
         filter(lambda x: isinstance(x, DenseFeat), constant_feature_columns) if constant_feature_columns else [])
+
     varlen_sparse_feature_columns = list(
         filter(lambda x: isinstance(x, VarLenSparseFeat), behavior_feature_columns) if behavior_feature_columns else [])
     varlen_dense_feature_columns = list(
@@ -206,36 +207,42 @@ def TimeSeries(constant_feature_columns, behavior_feature_columns, behavior_spar
     inputs_list = list(features.values())
 
     embedding_dict = create_embedding_matrix(constant_feature_columns + behavior_feature_columns,
-                                             l2_reg_embedding, seed, prefix="",
-                                             seq_mask_zero=False)
+                                             l2_reg_embedding, seed, prefix="", seq_mask_zero=False)
 
-    history_emb_list = embedding_lookup(embedding_dict, features, varlen_sparse_feature_columns,
-                                        return_feat_list=history_fc_names, to_list=True)
     history_dense_value_list = get_dense_input(features, varlen_dense_feature_columns)
-    # history_emb = concat_func(history_emb_list)
     history_dense = tf.keras.layers.Lambda(lambda x: tf.keras.backend.stack(x, axis=-1))(history_dense_value_list)
-    # history_input = Concatenate()([history_emb, history_dense])
-    history_input = history_dense
-
-    dnn_input_emb_list = embedding_lookup(embedding_dict, features, constant_sparse_feature_columns,
-                                          mask_feat_list=behavior_sparse_indicator, to_list=True)
-    # deep_input_emb = concat_func(dnn_input_emb_list)
-    deep_dense_value_list = get_dense_input(features, constant_dense_feature_columns)
-
+    if len(varlen_sparse_feature_columns) > 0:
+        history_emb_list = embedding_lookup(embedding_dict, features, varlen_sparse_feature_columns,
+                                            return_feat_list=history_fc_names, to_list=True)
+        history_emb = concat_func(history_emb_list)
+        history_input = Concatenate()([history_emb, history_dense])
+    else:
+        history_input = history_dense
     hist = evolution(history_input, user_behavior_length,
-                     embedding_size=8, gru_type="AVGRU", att_weight_normalization=True,
-                     attention_factor=4, l2_reg_w=0.1)
+                     embedding_size=gru_hidden_size,
+                     gru_type=gru_type,
+                     att_weight_normalization=True,
+                     attention_factor=gru_attention_w_dim,
+                     l2_reg_w=gru_attention_w_l2)
 
-    # deep_input_emb = Concatenate()([deep_input_emb, hist])
-    deep_input_emb = hist
-
+    if len(constant_sparse_feature_columns) > 0:
+        dnn_input_emb_list = embedding_lookup(embedding_dict, features, constant_sparse_feature_columns,
+                                              mask_feat_list=behavior_sparse_indicator, to_list=True)
+        deep_input_emb = concat_func(dnn_input_emb_list)
+        deep_input_emb = Concatenate()([deep_input_emb, hist])
+    else:
+        deep_input_emb = hist
     deep_input_emb = tf.keras.layers.Flatten()(deep_input_emb)
+
+    deep_dense_value_list = get_dense_input(features, constant_dense_feature_columns)
 
     dnn_input = combined_dnn_input([deep_input_emb], deep_dense_value_list)
 
     output = DNN(dnn_hidden_units, dnn_activation, l2_reg_dnn,
-                 dnn_dropout, use_bn, seed)(dnn_input)
+                 dnn_dropout, dnn_use_bn, seed=seed)(dnn_input)
+
     final_logit = Dense(1, use_bias=False, kernel_initializer=tf.keras.initializers.glorot_normal(seed))(output)
+
     output = PredictionLayer(task)(final_logit)
 
     model = tf.keras.models.Model(inputs=inputs_list, outputs=output)

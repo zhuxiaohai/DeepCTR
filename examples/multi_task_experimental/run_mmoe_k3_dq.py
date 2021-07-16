@@ -7,10 +7,10 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-from sklearn.preprocessing import LabelEncoder, MinMaxScaler
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler, StandardScaler
 from sklearn.metrics import roc_auc_score, roc_curve
 
-from tensorflow.python.keras.callbacks import TensorBoard
+from tensorflow.python.keras.callbacks import TensorBoard, ReduceLROnPlateau
 from tensorflow.python.keras.metrics import AUC
 from tensorflow.python.keras.models import load_model
 from tensorflow.python.keras.utils.vis_utils import plot_model
@@ -74,8 +74,8 @@ def build_model(hp):
 if __name__ == "__main__":
     # configure
     project_name = 'preloan_istrans_overdue2'
-    run_name = 'uncertainty_weight_fpd4_mask_mob3_k11_mask'
-    mode = 'test'
+    run_name = 'uncertainty_weight_fpd4_mask_mob3_k11_mask2'
+    mode = 'train'
     if platform.system() == 'Windows':
         joint_symbol = '\\'
     else:
@@ -192,10 +192,6 @@ if __name__ == "__main__":
         
     data['fpd4'] = data['fpd4'].fillna(0)
     data['mob3_k11'] = data['mob3_k11'].fillna(0)
-    # Reading data back
-    # with open('data/fill_na_dict.json', 'r') as f:
-    #     fill_na_dict = json.load(f)
-    data[col_x] = data[col_x].fillna(-1.0)
     
     sparse_features = []
 
@@ -208,12 +204,15 @@ if __name__ == "__main__":
     for feat in sparse_features:
         lbe = LabelEncoder()
         data[feat] = lbe.fit_transform(data[feat])
+
     mms = MinMaxScaler(feature_range=(0, 1))
     mms.fit(data[(data['set'] == '1train') | (data['set'] == '2test')][dense_features])
     # import pickle
-    # with open('mms.pkl', 'wb') as f:
+    # with open('mms4.pkl', 'wb') as f:
     #     pickle.dump(mms, f)
-
+    with open('fill_na_dict.json', 'r') as f:
+        fill_na_dict = json.load(f)
+    data[col_x] = data[col_x].fillna(fill_na_dict)
     data[dense_features] = mms.transform(data[dense_features])
 
     fixlen_feature_columns = [SparseFeat(feat, vocabulary_size=data[feat].unique().shape[0], embedding_dim=8)
@@ -286,6 +285,7 @@ if __name__ == "__main__":
         # last_lr = 0.003
         last_lr = 0.001
         optimizers = keras.optimizers.Adam(learning_rate=ModifiedExponentialDecay(last_lr))
+        # optimizers = keras.optimizers.Adam(learning_rate=last_lr)
         model.compile(optimizers=optimizers,
                       loss_fns=loss_fns,
                       metrics_logger=metrics_logger,
@@ -318,6 +318,8 @@ if __name__ == "__main__":
                                              {task_name: test[[task_name]] for task_name in tasks.keys()},
                                              {task_name: test[task_name+'_weight'] for task_name in tasks.keys()}),
                             callbacks=[
+                                # ReduceLROnPlateau(monitor='val_fpd4_AUC', factor=0.7, mode='max',
+                                #                   patience=2, verbose=1, min_delta=0.01),
                                       MyEarlyStopping('val_fpd4_AUC',
                                                       patience=10,
                                                       savepath=checkpoint_dir,
@@ -326,6 +328,7 @@ if __name__ == "__main__":
                                       TensorBoard(log_dir=tensorboard_dir),
                                       MyRecorder(log_dir=tensorboard_dir,
                                                  data=callback_data)
+
                             ]
                             )
     elif mode == 'tuning':

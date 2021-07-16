@@ -133,6 +133,20 @@ class EarlyStoppingAtMinKS(Callback):
             print("Epoch %05d: early stopping" % (self.stopped_epoch + 1))
 
 
+# if __name__ == "__main__":
+#     if tf.__version__ >= '2.0.0':
+#         tf.compat.v1.disable_eager_execution()
+#     x, y, constant_feature_columns, behavior_feature_columns, behavior_sparse_indicator = get_xy_fd()
+#
+#     # 4.Define Model,train,predict and evaluate
+#     model = TimeSeries(constant_feature_columns, behavior_feature_columns, behavior_sparse_indicator,
+#                        dnn_hidden_units=[4, 4], dnn_dropout=0.6)
+#
+#     model.compile('adam', 'binary_crossentropy',
+#                   metrics=['binary_crossentropy'])
+#     history = model.fit(x, y, verbose=1, epochs=10, validation_split=0.5)
+
+
 if __name__ == "__main__":
     if tf.__version__ >= '2.0.0':
         tf.compat.v1.disable_eager_execution()
