@@ -30,7 +30,7 @@ custom_objects['AUC'] = AUC
 if __name__ == "__main__":
     # configure
     task_name = 'preloan_istrans_overdue'
-    run_name = 'uncertainty_weight_esmm'
+    run_name = 'uncertainty_weight_esmm2'
     checkpoint_dir = '.\\' + task_name + '\ckt\\' + run_name
     tensorboard_dir = '.\\' + task_name + '\log_dir\\' + run_name
     summary_dir = '.\\' + task_name + '\metrics\\' + run_name
@@ -42,10 +42,10 @@ if __name__ == "__main__":
     loss_weights = {'istrans': 1, 'fpd4': 6}
     uncertainty = True
     batch_size = 256
-    mode = 'test'
+    mode = 'train'
 
     # read data
-    data = pd.read_csv('../data/train_for_multi.csv')
+    data = pd.read_csv('../data/train_for_multi2.csv')
     col_x = ['td_i_cnt_partner_all_imbank_365d',
              'duotou_br_als_m3_id_pdl_allnum',
              'marketing_channel_pred_1',
@@ -154,9 +154,9 @@ if __name__ == "__main__":
     if mode == 'train':
         model = ESMM(dnn_feature_columns, tasks=tasks)
         optimizers = keras.optimizers.Adam()
-        model.compile(optimizers=optimizers,
-                      loss_fns=loss_fns,
-                      metrics_logger=metrics_logger,
+        model.compile(optimizer=optimizers,
+                      loss=loss_fns,
+                      metrics=metrics_logger,
                       loss_weights=loss_weights,
                       uncertainly=uncertainty)
         try:

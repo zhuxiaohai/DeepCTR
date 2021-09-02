@@ -11,7 +11,7 @@ from xgboost import rabit
 from sklearn.model_selection import GridSearchCV, PredefinedSplit,  StratifiedKFold, cross_val_score, cross_validate
 from sklearn.metrics import f1_score, accuracy_score, roc_auc_score, roc_curve, make_scorer
 from bayes_opt import BayesianOptimization
-from .utils import cal_ks, cal_psi_score
+from deepctr.models.multitask.utils import cal_ks, cal_psi_score
 import warnings
 warnings.filterwarnings('ignore')
 

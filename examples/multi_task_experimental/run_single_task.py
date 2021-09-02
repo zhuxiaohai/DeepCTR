@@ -49,9 +49,9 @@ def build_model(hp):
                       l2_reg_dnn=l2_reg_dnn,
                       dnn_dropout=dnn_dropout
                       )
-    model.compile(optimizers=keras.optimizers.Adam(learning_rate=hp.Float('learning_rate', 1e-4, 0.01, sampling='log')),
-                  loss_fns=loss_fns,
-                  metrics_logger=metrics_logger,
+    model.compile(optimizer=keras.optimizers.Adam(learning_rate=hp.Float('learning_rate', 1e-4, 0.01, sampling='log')),
+                  loss=loss_fns,
+                  metrics=metrics_logger,
                   uncertainly=uncertainty,
                   gradnorm_config=gradnorm_config)
     return model
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     # configure
     project_name = 'preloan_istrans_overdue2'
     single_name = 'istrans'
-    run_name = 'single_expertfeatures_{}'.format(single_name)
+    run_name = 'single2_expertfeatures_{}'.format(single_name)
     if platform.system() == 'Windows':
         joint_symbol = '\\'
     else:
@@ -74,15 +74,15 @@ if __name__ == "__main__":
         os.makedirs(trend_dir)
     tasks = {single_name: 'binary'}
     loss_fns = {single_name: keras.losses.binary_crossentropy}
-    metrics_logger = {single_name: AUC}
+    metrics_logger = {single_name: AUC(name=single_name + '_AUC')}
     uncertainty = False
     gradnorm = False
     gradnorm_config = None
     batch_size = 256
-    mode = 'test'
+    mode = 'train'
 
     # read data
-    data = pd.read_csv('../data/train_for_multi.csv')
+    data = pd.read_csv('../data/train_for_multi2.csv')
     # fpd4
     # col_x = ['ali_rain_score',
     #          'td_zhixin_score',
@@ -277,13 +277,13 @@ if __name__ == "__main__":
                           dnn_dropout=0.158437822002694)
         last_lr = 0.001
         optimizers = keras.optimizers.Adam(learning_rate=last_lr)
-        model.compile(optimizers=optimizers,
-                      loss_fns=loss_fns,
-                      metrics_logger=metrics_logger,
+        model.compile(optimizer=optimizers,
+                      loss=loss_fns,
+                      metrics=metrics_logger,
                       uncertainly=uncertainty,
                       gradnorm_config=gradnorm_config)
-        plot_model(model, to_file=joint_symbol.join([checkpoint_dir, 'model_viz.png']), show_shapes=True,
-                   show_layer_names=True)
+        # plot_model(model, to_file=joint_symbol.join([checkpoint_dir, 'model_viz.png']), show_shapes=True,
+        #            show_layer_names=True)
         try:
             checkpoints = [joint_symbol.join([checkpoint_dir, name]) for name in os.listdir(checkpoint_dir)]
             latest_checkpoint = max(checkpoints).split('.index')[0]

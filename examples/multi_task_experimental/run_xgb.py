@@ -36,8 +36,8 @@ if __name__ == "__main__":
     # configure
     project_name = 'preloan_istrans_overdue2'
     single_name = 'istrans'
-    run_name = 'xgb_expertfeatures_{}_mask'.format(single_name)
-    mode = 'test'
+    run_name = 'xgb2_expertfeatures_{}_mask'.format(single_name)
+    mode = 'train'
     if platform.system() == 'Windows':
         joint_symbol = '\\'
     else:

@@ -62,9 +62,9 @@ def build_model(hp):
                            'last_shared_weights': last_shared_weights}
     else:
         gradnorm_config = None
-    model.compile(optimizers=keras.optimizers.Adam(learning_rate=hp.Float('learning_rate', 1e-4, 0.01, sampling='log')),
-                  loss_fns=loss_fns,
-                  metrics_logger=metrics_logger,
+    model.compile(optimizer=keras.optimizers.Adam(learning_rate=hp.Float('learning_rate', 1e-4, 0.01, sampling='log')),
+                  loss=loss_fns,
+                  metrics=metrics_logger,
                   uncertainly=uncertainty,
                   gradnorm_config=gradnorm_config)
     return model
@@ -73,8 +73,8 @@ def build_model(hp):
 if __name__ == "__main__":
     # configure
     project_name = 'preloan_istrans_overdue2'
-    run_name = 'uncertainty_weight_fpd4_mask_istrans_mask'
-    mode = 'test'
+    run_name = 'uncertainty_weight_fpd4_mask_istrans_mask2'
+    mode = 'train'
     if platform.system() == 'Windows':
         joint_symbol = '\\'
     else:
@@ -90,8 +90,8 @@ if __name__ == "__main__":
                 'fpd4': keras.losses.binary_crossentropy}
     # loss_fns = {'istrans': keras.losses.BinaryCrossentropy(),
     #             'fpd4': keras.losses.BinaryCrossentropy()}
-    metrics_logger = {'istrans': AUC,
-                      'fpd4': AUC}
+    metrics_logger = {'istrans': AUC(name='istrans_AUC'),
+                      'fpd4': AUC(name='fpd4_AUC')}
     loss_weights = {'istrans': 1, 'fpd4': 6}
     if run_name.find('uncertainty') >= 0:
         uncertainty = True
@@ -284,9 +284,9 @@ if __name__ == "__main__":
         # last_lr = 0.003
         last_lr = 0.0018228
         optimizers = keras.optimizers.Adam(learning_rate=last_lr)
-        model.compile(optimizers=optimizers,
-                      loss_fns=loss_fns,
-                      metrics_logger=metrics_logger,
+        model.compile(optimizer=optimizers,
+                      loss=loss_fns,
+                      metrics=metrics_logger,
                       loss_weights=loss_weights,
                       uncertainly=uncertainty,
                       gradnorm_config=gradnorm_config)
