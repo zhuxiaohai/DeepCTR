@@ -1,4 +1,4 @@
-import platform
+import os
 
 import tensorflow as tf
 from tensorflow.python.keras.callbacks import Callback
@@ -18,50 +18,56 @@ class ModifiedExponentialDecay(LearningRateSchedule):
     def __init__(
             self,
             initial_learning_rate=0.01,
+            max_iter_num=10000,
             decay_rate=0.75,
-            alpha=0.0067,
-            name=None):
+            alpha=10.0):
         super(ModifiedExponentialDecay, self).__init__()
         self.initial_learning_rate = initial_learning_rate
         self.decay_rate = decay_rate
         self.alpha = alpha
-        self.name = name
+        self.max_iter_num = max_iter_num
+        self.current_lr = tf.Variable(initial_learning_rate, trainable=False)
 
     def __call__(self, step):
-        with ops.name_scope_v2(self.name or "ModifiedExponentialDecay") as name:
+        with ops.name_scope_v2("ModifiedExponentialDecay") as name:
             initial_learning_rate = ops.convert_to_tensor_v2(
                 self.initial_learning_rate, name="initial_learning_rate")
             dtype = initial_learning_rate.dtype
             decay_rate = math_ops.cast(self.decay_rate, dtype)
             alpha = math_ops.cast(self.alpha, dtype)
 
-            global_step_recomp = math_ops.cast(step, dtype)
-            p = global_step_recomp
-            return math_ops.multiply(
-                initial_learning_rate, math_ops.pow((1. + alpha * p), -decay_rate), name=name)
+            global_step_recomp = math_ops.cast(step / self.max_iter_num, dtype)
+            current_lr = math_ops.multiply(
+                initial_learning_rate, math_ops.pow((1. + alpha * global_step_recomp), -decay_rate), name=name)
+            self.current_lr.assign(current_lr)
+            return current_lr
 
     def get_config(self):
         return {
             "initial_learning_rate": self.initial_learning_rate,
             "decay_rate": self.decay_rate,
-            "alpha": self.alpha,
-            "name": self.name
+            "alpha": self.alpha
         }
 
 
 class MyRecorder(Callback):
-    def __init__(self, log_dir, data, gradient_freq=1, experts_freq=1, batch_size=256):
+    def __init__(self, log_dir, data=None,
+                 gradient_freq=1, experts_freq=1, lr_freq=1):
         self.gradient_freq = gradient_freq
-        self.batch_size = batch_size
         self.experts_freq = experts_freq
-        if platform.system() == 'Windows':
-            self.joint_symbol = '\\'
-        else:
-            self.joint_symbol = '/'
-        self.writer = tf.summary.create_file_writer(self.joint_symbol.join([log_dir, 'callback']))
+        self.lr_freq = lr_freq
+        self.log_dir = log_dir + '/cb'
+        self.writer = tf.summary.create_file_writer(self.log_dir)
         self.data = data
         self.initial_task_losses = {}
         super(MyRecorder, self).__init__()
+
+    def set_model(self, model):
+        """Sets Keras model and writes graph if specified."""
+        try:
+            self.model = model.main_model
+        except:
+            self.model = model
 
     def _log_experts(self, epoch):
         if len(self.data) == 3:
@@ -165,11 +171,24 @@ class MyRecorder(Callback):
                         weights.name.replace(':', '_') + '_grads', data=grad, step=epoch)
         self.writer.flush()
 
+    def _log_lr(self, epoch):
+        try:
+            current_lr = self.model.optimizer.lr.current_lr
+        except:
+            current_lr = self.model.optimizer.lr
+        with self.writer.as_default():
+            tf.summary.scalar('learning_rate',
+                              data=K.get_value(current_lr),
+                              step=epoch)
+        self.writer.flush()
+
     def on_epoch_end(self, epoch, logs=None):
         if self.gradient_freq and epoch % self.gradient_freq == 0:
             self._log_gradients(epoch)
         if self.experts_freq and epoch % self.experts_freq == 0:
             self._log_experts(epoch)
+        if self.lr_freq and epoch % self.lr_freq == 0:
+            self._log_lr(epoch)
 
 
 class MyEarlyStopping(Callback):
@@ -177,10 +196,7 @@ class MyEarlyStopping(Callback):
         super(MyEarlyStopping, self).__init__()
         self.patience = patience
         self.savepath = savepath
-        if platform.system() == 'Windows':
-            self.joint_symbol = '\\'
-        else:
-            self.joint_symbol = '/'
+        self.joint_symbol = '/'
         self.best_weights = None
         self.coef_of_balance = coef_of_balance
         self.monitor = monitor
@@ -198,13 +214,25 @@ class MyEarlyStopping(Callback):
             return x < y
 
     def _save_model(self):
+        try:
+            current_lr = self.model.optimizer.lr.current_lr
+        except:
+            current_lr = self.model.optimizer.lr
         self.model.save_weights(self.joint_symbol.join([self.savepath, 'model-{:02d}-{:.5f}']).format(
-            self.current_epoch + 1, K.get_value(self.model.optimizer.lr)))
+            self.current_epoch + 1, K.get_value(current_lr)))
         print('\n')
         print("Restoring model weights from the end of the best epoch: %05d" % (self.best_epoch + 1))
         self.model.set_weights(self.best_weights)
-        save_model(self.model, self.joint_symbol.join([self.savepath, 'best_model_epoch{}_{}{:.4f}.h5']).format(
-            self.best_epoch + 1, self.monitor, self.best_monitor))
+        try:
+            save_model(self.model, self.joint_symbol.join([self.savepath, 'best_model_epoch{}_{}{:.4f}.h5']).format(
+                self.best_epoch + 1, self.monitor, self.best_monitor))
+        except:
+            try:
+                save_model(self.model, self.joint_symbol.join([self.savepath, 'best_model_epoch{}_{}{:.4f}']).format(
+                    self.best_epoch + 1, self.monitor, self.best_monitor))
+            except:
+                save_model(self.model.main_model, self.joint_symbol.join([self.savepath, 'best_main_epoch{}_{}{:.4f}.h5']).format(
+                    self.best_epoch + 1, self.monitor, self.best_monitor))
 
     def on_train_begin(self, logs=None):
         self.wait = 0
@@ -234,23 +262,9 @@ class MyEarlyStopping(Callback):
         else:
             self.wait += 1
             if self.wait >= self.patience:
-                self.model.save_weights(self.joint_symbol.join([self.savepath, 'model-{:02d}-{:.5f}']).format(
-                    self.current_epoch + 1, K.get_value(self.model.optimizer.lr)))
                 self.model.stop_training = True
-                print('\n')
-                print("Restoring model weights from the end of the best epoch: %05d" % (self.best_epoch + 1))
-                self.model.set_weights(self.best_weights)
-                save_model(self.model, self.joint_symbol.join([self.savepath, 'best_model_epoch{}_{}{:.4f}.h5']).format(
-                    self.best_epoch + 1, self.monitor, self.best_monitor))
+                print("Epoch %05d: early stopping. Saving the best at Epoch %05d" %
+                      (self.current_epoch + 1, self.best_epoch + 1))
 
     def on_train_end(self, logs=None):
-        if self.current_epoch == self.best_epoch:
-            self.model.save_weights(self.joint_symbol.join([self.savepath, 'model-{:02d}-{:.5f}']).format(
-                self.current_epoch + 1, K.get_value(self.model.optimizer.lr)))
-            print('\n')
-            print("Restoring model weights from the end of the best epoch: %05d" % (self.best_epoch + 1))
-            self.model.set_weights(self.best_weights)
-            save_model(self.model, self.joint_symbol.join([self.savepath, 'best_model_epoch{}_{}{:.4f}.h5']).format(
-                self.best_epoch + 1, self.monitor, self.best_monitor))
-        else:
-            print("Epoch %05d: early stopping" % (self.current_epoch + 1))
+        self._save_model()

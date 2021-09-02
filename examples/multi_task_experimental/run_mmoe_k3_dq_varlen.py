@@ -128,7 +128,7 @@ if __name__ == "__main__":
 
 
     # read data
-    data = pd.read_csv('data/test2.csv')
+    data = pd.read_csv('../data/test2.csv')
     col_x = ['tz_m12_platform_infos_max_all_overdue_repay_plat_cnt_2',
              'cs_hc_phone_score',
              'upa_max_consume_amt_6m',
@@ -234,7 +234,7 @@ if __name__ == "__main__":
     data[col_x] = quantile_transformer.transform(data[col_x])
     data[col_x] = data[col_x].fillna(-1)
     import pickle
-    with open('quantile_transformer.pkl', 'wb') as f:
+    with open('../data/quantile_transformer.pkl', 'wb') as f:
         pickle.dump(quantile_transformer, f)
 
     # import toad

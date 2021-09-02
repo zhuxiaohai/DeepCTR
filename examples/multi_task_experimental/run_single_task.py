@@ -82,7 +82,7 @@ if __name__ == "__main__":
     mode = 'test'
 
     # read data
-    data = pd.read_csv('data/train_for_multi.csv')
+    data = pd.read_csv('../data/train_for_multi.csv')
     # fpd4
     # col_x = ['ali_rain_score',
     #          'td_zhixin_score',

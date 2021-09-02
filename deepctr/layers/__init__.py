@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 from .activation import Dice
-from .core import DNN, LocalActivationUnit, PredictionLayer
+from .core import DNN, LocalActivationUnit, PredictionLayer, ModifiedPredictionLayer
 from .interaction import (CIN, FM, AFMLayer, BiInteractionPooling, CrossNet, CrossNetMix,
                           InnerProductLayer, InteractingLayer,
                           OutterProductLayer, FGCNNLayer, SENETLayer, BilinearInteraction,
@@ -48,5 +48,6 @@ custom_objects = {'tf': tf,
                   'softmax': softmax,
                   'FEFMLayer': FEFMLayer,
                   'reduce_sum': reduce_sum,
-                  'PositionEncoding':PositionEncoding
+                  'PositionEncoding': PositionEncoding,
+                  'ModifiedPredictionLayer': ModifiedPredictionLayer
                   }

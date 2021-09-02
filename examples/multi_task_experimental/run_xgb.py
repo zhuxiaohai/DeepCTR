@@ -66,7 +66,7 @@ if __name__ == "__main__":
     batch_size = 256
 
     # read data
-    data = pd.read_csv('data/train_for_multi2.csv')
+    data = pd.read_csv('../data/train_for_multi2.csv')
     # fpd4
     # col_x = ['ali_rain_score',
     #          'td_zhixin_score',

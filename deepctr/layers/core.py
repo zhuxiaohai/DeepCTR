@@ -255,3 +255,50 @@ class PredictionLayer(Layer):
         config = {'task': self.task, 'use_bias': self.use_bias}
         base_config = super(PredictionLayer, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
+
+
+class ModifiedPredictionLayer(Layer):
+    """
+      Arguments
+         - **task**: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+
+         - **use_bias**: bool.Whether add bias term or not.
+    """
+
+    def __init__(self, task='binary', use_bias=True, multiclass_num=1, **kwargs):
+        if task not in ["binary", "multiclass", "regression"]:
+            raise ValueError("task must be binary,multiclass or regression")
+        self.task = task
+        self.use_bias = use_bias
+        self.multiclass_num = multiclass_num
+        super(ModifiedPredictionLayer, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+
+        if self.use_bias:
+            self.global_bias = self.add_weight(
+                shape=(self.multiclass_num,), initializer=Zeros(), name="global_bias")
+
+        # Be sure to call this somewhere!
+        super(ModifiedPredictionLayer, self).build(input_shape)
+
+    def call(self, inputs, **kwargs):
+        x = inputs
+        if self.use_bias:
+            x = tf.nn.bias_add(x, self.global_bias, data_format='NHWC')
+        if self.task == "binary":
+            x = tf.sigmoid(x)
+        elif self.task == 'multiclass':
+            x = tf.nn.softmax(x)
+
+        output = tf.reshape(x, (-1, self.multiclass_num))
+
+        return output
+
+    def compute_output_shape(self, input_shape):
+        return (None, self.multiclass_num)
+
+    def get_config(self, ):
+        config = {'task': self.task, 'use_bias': self.use_bias, 'multiclass_num': self.multiclass_num}
+        base_config = super(ModifiedPredictionLayer, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))

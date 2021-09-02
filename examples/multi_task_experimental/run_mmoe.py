@@ -109,7 +109,7 @@ if __name__ == "__main__":
 
 
     # read data
-    data = pd.read_csv('data/train_for_multi2.csv')
+    data = pd.read_csv('../data/train_for_multi2.csv')
     col_x = ['td_i_cnt_partner_all_imbank_365d',
              'duotou_br_als_m3_id_pdl_allnum',
              'marketing_channel_pred_1',

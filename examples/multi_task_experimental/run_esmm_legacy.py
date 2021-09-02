@@ -78,7 +78,7 @@ class MyEarlyStopping(Callback):
 
 if __name__ == "__main__":
     mode = 'train'
-    data = pd.read_csv('data/train_for_multi.csv')
+    data = pd.read_csv('../data/train_for_multi.csv')
     col_x = ['td_i_cnt_partner_all_imbank_365d',
              'duotou_br_als_m3_id_pdl_allnum',
              'marketing_channel_pred_1',

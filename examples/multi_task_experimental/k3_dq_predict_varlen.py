@@ -34,7 +34,7 @@ custom_objects['Mean'] = Mean
 custom_objects['AUC'] = AUC
 
 
-#
+
 # def map_score(x):
 #     if isinstance(x, float):
 #         return np.nan
@@ -50,7 +50,7 @@ custom_objects['AUC'] = AUC
 #     else:
 #         return temp
 #
-# data = pd.read_csv('test.csv')
+# data = pd.read_csv('data/test2.csv')
 # backup = data.copy()
 # # data = pd.DataFrame(data=data, index = [0])
 # col_x = ['tz_m12_platform_infos_max_all_overdue_repay_plat_cnt_2', 'cs_hc_phone_score',
@@ -94,16 +94,17 @@ custom_objects['AUC'] = AUC
 # data['td_i_length_first_all_consumerfinance_365d'] = data['td_i_length_first_all_consumerfinance_365d'].map(
 #     map_score).astype(float)
 # data['tx_m6_cell_allnum'] = data['tx_m6_cell_allnum'].astype(float)
-#
-#
-# quantile_transformer = QuantileTransformer(random_state=0)
-# quantile_transformer.fit(data[(data['set'] == '1train') | (data['set'] == '2test')][col_x])
+
+
+# import pickle
+# with open('quantile_transformer.pkl', 'rb') as f:
+#     quantile_transformer = pickle.load(f)
 # data[col_x] = quantile_transformer.transform(data[col_x])
 # data[col_x] = data[col_x].fillna(-1)
 # best_metric = -1
 # best_model = None
 # project_name = 'preloan_istrans_overdue2'
-# run_name = 'uncertainty_weight_fpd4_mask_mob3_k11_mask6'
+# run_name = 'uncertainty_weight_fpd4_mask_mob3_k11_mask7'
 # mode = 'test'
 # if platform.system() == 'Windows':
 #     joint_symbol = '\\'
@@ -124,8 +125,8 @@ custom_objects['AUC'] = AUC
 # n_bins=20
 # weight_dict = {}
 # for round_num, ft in enumerate(col_x):
-#     weight_dict[ft] = np.array([list(range(1, n_bins + 2))] * data.shape[0])
-#     bin_ary = np.array([i / n_bins for i in range(1, n_bins + 1)])
+#     weight_dict[ft] = np.array([list(range(1, n_bins + 1))] * data.shape[0])
+#     bin_ary = np.array([i / n_bins for i in range(1, n_bins)])
 #     bin_ary = np.append(bin_ary, -1)
 #     cent_hat = np.abs(np.expand_dims(np.expand_dims(data[ft], -1), -1) - np.expand_dims(bin_ary, -1))
 #     weight_dict[ft + '_weight'] = 1.0 / (cent_hat + 1e-7)
@@ -135,8 +136,9 @@ custom_objects['AUC'] = AUC
 # backup['fpd4_pred2'] = predictions['fpd4'].flatten()
 # backup['istrans_pred2'] = predictions['istrans'].flatten()
 # backup['mob3_k11_pred2'] = predictions['mob3_k11'].flatten()
-#
-# data = backup
+# print(backup[['fpd4_pred2', 'mob3_k11_pred2']].corr())
+
+# data = backup.copy()
 # data[col_x] = data[col_x].replace([-99, -1, np.nan, '-1', '-99', '-1111', '-999', -999], np.nan)
 #
 # data['wy_credit_score_credit_apply'] = data['wy_credit_score_credit_apply'].astype(float)
@@ -173,8 +175,8 @@ custom_objects['AUC'] = AUC
 # backup['mob3_k11_pred'] = predictions['mob3_k11'].flatten()
 #
 # backup.to_csv('evaluation_multitask2.csv', index=None)
-#
-#
+
+
 
 def map_score(x):
     if isinstance(x, float):
@@ -232,7 +234,7 @@ if __name__ == "__main__":
     batch_size = 256
 
     # read data
-    data = pd.read_csv('data/test2.csv')
+    data = pd.read_csv('../data/test2.csv')
     col_x = ['tz_m12_platform_infos_max_all_overdue_repay_plat_cnt_2',
              'cs_hc_phone_score',
              'upa_max_consume_amt_6m',
@@ -338,7 +340,7 @@ if __name__ == "__main__":
     # quantile_transformer = QuantileTransformer(random_state=0)
     # quantile_transformer.fit(data[(data['set'] == '1train') | (data['set'] == '2test')][col_x])
     import pickle
-    with open('quantile_transformer.pkl', 'rb') as f:
+    with open('../data/quantile_transformer.pkl', 'rb') as f:
         quantile_transformer = pickle.load(f)
     data[col_x] = quantile_transformer.transform(data[col_x])
     data[col_x] = data[col_x].fillna(-1)
@@ -354,8 +356,11 @@ if __name__ == "__main__":
                 best_model = i
     print('loading ', joint_symbol.join([checkpoint_dir, best_model]))
     model = load_model(joint_symbol.join([checkpoint_dir, best_model]), custom_objects=custom_objects)
-    for task_name in ['mob3_k11']:
-        for index, set_name in enumerate(['1train', '2test', '3oot']):
+
+    for task_name in ['istrans']:
+        fig = plt.figure(figsize=(8, 10))
+        fig.suptitle(run_name + '_' + task_name)
+        for index, set_name in enumerate(['4oot', '5oot', '6oot']):
             set_data = data[(data['set'] == set_name)]
             print(set_data[set_data[task_name + '_mask'] == 1].shape)
             weight_dict = {}
@@ -367,8 +372,22 @@ if __name__ == "__main__":
                 weight_dict[ft + '_weight'] = 1.0 / (cent_hat + 1e-7)
             predictions = model.predict(weight_dict)
             auc_score = roc_auc_score(set_data[task_name].values, predictions[task_name][:, 0],
-                                      sample_weight=set_data[task_name + '_mask'].values)
-            fpr, tpr, _ = roc_curve(set_data[task_name].values, predictions[task_name][:, 0],
-                                    sample_weight=set_data[task_name + '_mask'].values)
+                                      # sample_weight=set_data[task_name + '_mask'].values
+                                      )
+            fpr, tpr, thresholds = roc_curve(set_data[task_name].values, predictions[task_name][:, 0],
+                                             # sample_weight=set_data[task_name + '_mask'].values
+                                             )
             ks = np.max(np.abs(tpr - fpr))
-            print(' {}: {} auc {:4f} ks {:4f}'.format(task_name, set_name, auc_score, ks))
+            ks_index = np.argmax(tpr - fpr)
+            ks_thresh = thresholds[ks_index]
+            print(' {}: {} auc {:4f} ks {:4f}@{:4f}'.format(task_name, set_name, auc_score, ks, ks_thresh))
+
+            pred = predictions[task_name][:, 0]
+            target = set_data[task_name].values
+            weight = set_data[task_name + '_mask'].values
+            # pred = pred[weight != 0]
+            # target = target[weight != 0]
+            df = pd.DataFrame({'pred': pred, 'target': target})
+            ax = fig.add_subplot(3, 1, index + 1)
+            _ = calc_lift(df, 'pred', 'target', ax=ax, groupnum=10, title_name='sss')
+        plt.show()
