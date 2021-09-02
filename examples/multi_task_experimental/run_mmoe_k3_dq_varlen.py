@@ -187,24 +187,24 @@ if __name__ == "__main__":
     data['fpd4_weight'] = 1.0
     data['fpd4_mask'] = 1.0
     if run_name.find('fpd4_nomask') >= 0:
-        data.loc[(data['if_t4'] == 0), 'fpd4_weight'] = 1.0
+        pass
     else:
-        data.loc[(data['if_t4'] == 0), 'fpd4_weight'] = 0.0
-    data.loc[(data['if_t4'] == 0), 'fpd4_mask'] = 0
+        data.loc[(data['if_t4'] != 1), 'fpd4_weight'] = 0.0
+    data.loc[(data['if_t4'] != 1), 'fpd4_mask'] = 0
     
     data['mob3_k11_weight'] = 1.0
     data['mob3_k11_mask'] = 1.0
     if run_name.find('mob3_k11_nomask') >= 0:
-        data.loc[(data['if_mob3_t11'] == 0), 'mob3_k11_weight'] = 1.0
+        pass
     else:
-        data.loc[(data['if_mob3_t11'] == 0), 'mob3_k11_weight'] = 0.0
-    data.loc[(data['if_mob3_t11'] == 0), 'mob3_k11_mask'] = 0
+        data.loc[(data['if_mob3_t11'] != 1), 'mob3_k11_weight'] = 0.0
+    data.loc[(data['if_mob3_t11'] != 1), 'mob3_k11_mask'] = 0
     
     data['istrans_weight'] = 1.0
     data['istrans_mask'] = 1.0
-    data.loc[data['pre_loan_flag'] == 1, 'istrans_mask'] = 0.0
+    data.loc[data['pre_loan_flag'] != 0, 'istrans_mask'] = 0.0
     if run_name.find('istrans_mask') >= 0:
-        data.loc[data['pre_loan_flag'] == 1, 'istrans_weight'] = 0.0
+        data.loc[data['pre_loan_flag'] != 0, 'istrans_weight'] = 0.0
         
     data['fpd4'] = data['fpd4'].fillna(0)
     data['mob3_k11'] = data['mob3_k11'].fillna(0)
