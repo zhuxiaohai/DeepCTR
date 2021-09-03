@@ -19,7 +19,7 @@ from deepctr.models.transferlearning.domain_adaptation import DomainAdaptation
 from deepctr.models.transferlearning.transferloss import DomainAdversarialLoss, MMDLoss, LMMDLoss
 from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
 from deepctr.models.transferlearning.basenet import SimpleDNN
-from deepctr.models.multitask.call_backs import MyEarlyStopping, ModifiedExponentialDecay, MyRecorder
+from deepctr.call_backs import MyEarlyStopping, ModifiedExponentialDecay, MyRecorder
 from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 from deepctr.models.multitask.utils import calc_lift
@@ -33,8 +33,8 @@ custom_objects['ModifiedExponentialDecay'] = ModifiedExponentialDecay
 
 
 project_name = 'k3dq'
-run_name = 'fpd4_mask_mmd_da'
-mode = 'train'
+run_name = 'fpd4_mask_lmmd_da'
+mode = 'test'
 joint_symbol = '/'
 checkpoint_dir = joint_symbol.join([project_name, 'ckt', run_name])
 tensorboard_dir = joint_symbol.join([project_name, 'log_dir', run_name])
@@ -251,24 +251,13 @@ if run_name.find('_da') >= 0:
             )
         )
 else:
-    if run_name.find('_lmmd') >= 0:
-        enc = OneHotEncoder(handle_unknown='ignore')
-        val_dataset = tf.data.Dataset.from_tensor_slices(
-            (
-                {name: target[target['set'] == '3oot'][name] for name in feature_names},
-                {task_name: enc.fit_transform(target[target['set'] == '3oot'][[task_name]]).toarray().astype(np.float32)
-                 for task_name in tasks.keys()},
-                {task_name: target[target['set'] == '3oot'][task_name + '_weight'] for task_name in tasks.keys()}
-            )
+    val_dataset = tf.data.Dataset.from_tensor_slices(
+        (
+            {name: target[target['set'] == '3oot'][name] for name in feature_names},
+            {task_name: target[target['set'] == '3oot'][[task_name]] for task_name in tasks.keys()},
+            {task_name: target[target['set'] == '3oot'][task_name+'_weight'] for task_name in tasks.keys()}
         )
-    else:
-        val_dataset = tf.data.Dataset.from_tensor_slices(
-            (
-                {name: target[target['set'] == '3oot'][name] for name in feature_names},
-                {task_name: target[target['set'] == '3oot'][[task_name]] for task_name in tasks.keys()},
-                {task_name: target[target['set'] == '3oot'][task_name+'_weight'] for task_name in tasks.keys()}
-            )
-        )
+    )
     val_dataset = val_dataset.batch(batch_size)
 
 if mode == 'train':

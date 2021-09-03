@@ -18,8 +18,8 @@ from deepctr.feature_column import DenseFeat, SparseFeat, get_feature_names
 from deepctr.models.transferlearning.domain_adaptation import DomainAdaptation
 from deepctr.models.transferlearning.transferloss import DomainAdversarialLoss, MMDLoss, LMMDLoss
 from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
-from deepctr.models.transferlearning.basenet import SimpleDNN, DeepFM
-from deepctr.models.multitask.call_backs import MyEarlyStopping, ModifiedExponentialDecay, MyRecorder
+from deepctr.models.transferlearning.basenet import DeepFM
+from deepctr.call_backs import MyEarlyStopping, ModifiedExponentialDecay, MyRecorder
 from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 from deepctr.models.multitask.utils import calc_lift

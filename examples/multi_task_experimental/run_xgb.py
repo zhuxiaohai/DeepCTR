@@ -1,8 +1,6 @@
 #%%
 import platform
-import json
 import os
-import re
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,17 +9,13 @@ from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 from sklearn.metrics import roc_auc_score, roc_curve
 import xgboost as xgb
 
-from tensorflow.python.keras.callbacks import TensorBoard
 from tensorflow.python.keras.metrics import AUC
-from tensorflow.python.keras.models import load_model
 from tensorflow.keras.metrics import Mean
-from tensorflow import keras
 import tensorflow as tf
 
 from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 from deepctr.feature_column import SparseFeat, DenseFeat, get_feature_names
-from deepctr.models.multitask.call_backs import MyEarlyStopping
 from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
 from deepctr.models.multitask.utils import calc_lift, cal_psi_score, calc_cum
 from deepctr.models.multitask.grid_search_xgb import OptunaSearchXGB
@@ -46,10 +40,6 @@ if __name__ == "__main__":
     tensorboard_dir = joint_symbol.join([project_name, 'log_dir', run_name])
     summary_dir = joint_symbol.join([project_name, 'metrics', run_name])
     trend_dir = joint_symbol.join([project_name, 'trend', run_name])
-    if not os.path.exists(trend_dir):
-        os.makedirs(trend_dir)
-    if not os.path.exists(checkpoint_dir):
-        os.makedirs(checkpoint_dir)
     tasks = {single_name: 'binary'}
     if run_name.find('uncertainty') >= 0:
         uncertainty = True
@@ -248,6 +238,8 @@ if __name__ == "__main__":
 
     # train or predict
     if mode == 'train':
+        if not os.path.exists(checkpoint_dir):
+            os.makedirs(checkpoint_dir)
         op = OptunaSearchXGB()
         tuning_param_dict = {'objective': 'binary:logistic',
                              'verbosity': 0,
@@ -283,6 +275,8 @@ if __name__ == "__main__":
         model = xgb.train(train_param, train_dmatrix, num_boost_round=train_param['n_iterations'])
         model.save_model(joint_symbol.join([checkpoint_dir, 'xgb']))
     else:
+        if not os.path.exists(trend_dir):
+            os.makedirs(trend_dir)
         best_metric = -1
         best_model = None
         for i in os.listdir(checkpoint_dir):

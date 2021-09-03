@@ -95,6 +95,12 @@ class CompositeOptimizer(tf.keras.optimizers.Optimizer):
         # Returning iterations from the first optimizer.
         return self._optimizers_and_vars[0][0].iterations
 
+    @property
+    def lr(self):
+        """See base class."""
+        # Returning lr from the first optimizer.
+        return self._optimizers_and_vars[0][0].lr
+
     @iterations.setter
     def iterations(self, variable):
         """See base class."""

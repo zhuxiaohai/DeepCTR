@@ -7,13 +7,12 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-from sklearn.preprocessing import LabelEncoder, MinMaxScaler, StandardScaler
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 from sklearn.metrics import roc_auc_score, roc_curve
 
-from tensorflow.python.keras.callbacks import TensorBoard, ReduceLROnPlateau
+from tensorflow.python.keras.callbacks import TensorBoard
 from tensorflow.python.keras.metrics import AUC
 from tensorflow.python.keras.models import load_model
-from tensorflow.python.keras.utils.vis_utils import plot_model
 from tensorflow.keras.metrics import Mean
 from tensorflow import keras
 import tensorflow as tf
@@ -22,10 +21,10 @@ import kerastuner as kt
 from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 from deepctr.feature_column import SparseFeat, DenseFeat, get_feature_names
-from deepctr.models.multitask.mmoe import MMOE, MMOELayer, MMOE_BIAS
-from deepctr.models.multitask.call_backs import MyEarlyStopping, MyRecorder, ModifiedExponentialDecay
+from deepctr.models.multitask.mmoe import MMOELayer, MMOE_BIAS
+from deepctr.call_backs import MyEarlyStopping, MyRecorder, ModifiedExponentialDecay
 from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
-from deepctr.models.multitask.utils import calc_lift, cal_psi_score, calc_cum
+from deepctr.models.multitask.utils import calc_lift, cal_psi_score
 
 custom_objects['NoMask'] = NoMask
 custom_objects['MMOELayer'] = MMOELayer
@@ -85,8 +84,6 @@ if __name__ == "__main__":
     tensorboard_dir = joint_symbol.join([project_name, 'log_dir', run_name])
     summary_dir = joint_symbol.join([project_name, 'metrics', run_name])
     trend_dir = joint_symbol.join([project_name, 'trend', run_name])
-    if not os.path.exists(trend_dir):
-        os.makedirs(trend_dir)
     tasks = {'istrans': 'binary', 'fpd4': 'binary', 'mob3_k11': 'binary'}
     loss_fns = {'istrans': keras.losses.binary_crossentropy,
                 'fpd4': keras.losses.binary_crossentropy,
@@ -357,6 +354,8 @@ if __name__ == "__main__":
         print(best_hyperparameters.values)
         # model = tuner.get_best_models(1)[0]
     else:
+        if not os.path.exists(trend_dir):
+            os.makedirs(trend_dir)
         best_metric = -1
         best_model = None
         for i in os.listdir(checkpoint_dir):

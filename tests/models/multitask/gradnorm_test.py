@@ -20,7 +20,7 @@ from deepctr.layers.core import DNN
 from deepctr.layers.utils import combined_dnn_input
 from deepctr.feature_column import build_input_features, input_from_feature_columns
 from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
-from deepctr.models.multitask.call_backs import MyRecorder
+from deepctr.call_backs import MyRecorder
 from utils import get_multitask_test_data
 
 
@@ -47,7 +47,7 @@ def toy_gradnorm_model(num_tasks, feature_columns, output_dim, seed=1024):
 
 if __name__ == '__main__':
     # configure
-    project_name = 'test_gradnorm'
+    project_name = 'test_gradnorm2'
     run_name = 'gradnorm_1_100'
     if platform.system() == 'Windows':
         joint_symbol = '\\'
@@ -63,8 +63,8 @@ if __name__ == '__main__':
     uncertainty = True
     loss_fns = {'task_0': keras.losses.mean_squared_error,
                 'task_1': keras.losses.mean_squared_error}
-    metrics_logger = {'task_0': MeanSquaredError,
-                      'task_1': MeanSquaredError}
+    metrics_logger = {'task_0': MeanSquaredError(),
+                      'task_1': MeanSquaredError()}
     loss_weights = {'task_0': 1, 'task_1': 1}
 
     model_input, y_train, model_test_input, y_test, feature_columns = get_multitask_test_data(sample_size,
@@ -78,9 +78,9 @@ if __name__ == '__main__':
         gradnorm_config = None
     last_lr = 0.001
     optimizers = keras.optimizers.Adam(learning_rate=last_lr)
-    model.compile(optimizers=optimizers,
-                  loss_fns=loss_fns,
-                  metrics_logger=metrics_logger,
+    model.compile(optimizer=optimizers,
+                  loss=loss_fns,
+                  metrics=metrics_logger,
                   loss_weights=loss_weights,
                   uncertainly=uncertainty,
                   gradnorm_config=gradnorm_config)

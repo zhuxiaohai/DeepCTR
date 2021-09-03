@@ -2,30 +2,21 @@
 import platform
 import os
 import re
-import json
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
 
-from sklearn.preprocessing import LabelEncoder, MinMaxScaler, QuantileTransformer
 from sklearn.metrics import roc_auc_score, roc_curve
 
-from tensorflow.python.keras.callbacks import TensorBoard
 from tensorflow.python.keras.metrics import AUC
-from tensorflow.python.keras.models import load_model, save_model
-from tensorflow.python.keras.utils.vis_utils import plot_model
+from tensorflow.python.keras.models import load_model
 from tensorflow.keras.metrics import Mean
 from tensorflow import keras
-import tensorflow as tf
-import kerastuner as kt
 
 from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
-from deepctr.feature_column import SparseFeat, DenseFeat, get_feature_names
-from deepctr.models.multitask.mmoe import MMOE, MMOELayer, MMOE_BIAS
-from deepctr.models.multitask.call_backs import MyEarlyStopping, MyRecorder, ModifiedExponentialDecay
+from deepctr.models.multitask.mmoe import MMOELayer
 from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
-from deepctr.models.multitask.utils import calc_lift, cal_psi_score, calc_cum
+from deepctr.models.multitask.utils import calc_lift
 import numpy as np
 custom_objects['NoMask'] = NoMask
 custom_objects['MMOELayer'] = MMOELayer

@@ -17,7 +17,7 @@ from deepctr.models.transferlearning.domain_adaptation import DomainAdaptation
 from deepctr.models.transferlearning.transferloss import DomainAdversarialLoss, LMMDLoss, MMDLoss
 from deepctr.models.transferlearning.utils import plot_tsne_source_target, proxy_a_distance
 from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
-from deepctr.models.multitask.call_backs import MyEarlyStopping, ModifiedExponentialDecay
+from deepctr.call_backs import MyEarlyStopping, ModifiedExponentialDecay
 from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 
@@ -29,8 +29,8 @@ custom_objects['AUC'] = AUC
 custom_objects['ModifiedExponentialDecay'] = ModifiedExponentialDecay
 
 project_name = 'k3dq'
-run_name = 'toy_lmmd_da'
-mode = 'test'
+run_name = 'toy_lmmd_da2'
+mode = 'train'
 joint_symbol = '/'
 checkpoint_dir = joint_symbol.join([project_name, 'ckt', run_name])
 tensorboard_dir = joint_symbol.join([project_name, 'log_dir', run_name])

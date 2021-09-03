@@ -14,7 +14,6 @@ from tensorflow.python.keras.metrics import AUC
 from tensorflow.python.keras.models import load_model
 from tensorflow.keras.metrics import Mean
 from tensorflow import keras
-from tensorflow.python.keras.utils.vis_utils import plot_model
 import kerastuner as kt
 import tensorflow as tf
 
@@ -22,7 +21,7 @@ from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 from deepctr.feature_column import SparseFeat, DenseFeat, get_feature_names
 from deepctr.models.multitask.ple import PLE, CGC
-from deepctr.models.multitask.call_backs import MyEarlyStopping, MyRecorder
+from deepctr.call_backs import MyEarlyStopping, MyRecorder
 from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
 from deepctr.models.multitask.utils import calc_lift, cal_psi_score, calc_cum
 
@@ -81,8 +80,6 @@ if __name__ == "__main__":
     tensorboard_dir = joint_symbol.join([project_name, 'log_dir', run_name])
     summary_dir = joint_symbol.join([project_name, 'metrics', run_name])
     trend_dir = joint_symbol.join([project_name, 'trend', run_name])
-    if not os.path.exists(trend_dir):
-        os.makedirs(trend_dir)
     tasks = {'istrans': 'binary', 'fpd4': 'binary'}
     loss_fns = {'istrans': keras.losses.binary_crossentropy,
                 'fpd4': keras.losses.binary_crossentropy}
@@ -293,6 +290,8 @@ if __name__ == "__main__":
         print(best_hyperparameters.values)
         # model = tuner.get_best_models(1)[0]
     else:
+        if not os.path.exists(trend_dir):
+            os.makedirs(trend_dir)
         best_metric = -1
         best_model = None
         for i in os.listdir(checkpoint_dir):

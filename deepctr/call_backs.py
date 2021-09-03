@@ -1,5 +1,3 @@
-import os
-
 import tensorflow as tf
 from tensorflow.python.keras.callbacks import Callback
 from tensorflow.python.keras.models import save_model, Model
@@ -192,7 +190,7 @@ class MyRecorder(Callback):
 
 
 class MyEarlyStopping(Callback):
-    def __init__(self, monitor, patience=0, savepath=None, coef_of_balance=0.2, direction='maximize'):
+    def __init__(self, monitor, patience=0, savepath=None, coef_of_balance=0.2, persistence=True, direction='maximize'):
         super(MyEarlyStopping, self).__init__()
         self.patience = patience
         self.savepath = savepath
@@ -201,6 +199,7 @@ class MyEarlyStopping(Callback):
         self.coef_of_balance = coef_of_balance
         self.monitor = monitor
         self.direction = direction
+        self.persistence = persistence
         self.wait = 0
         self.current_epoch = 0
         self.best = None
@@ -223,12 +222,9 @@ class MyEarlyStopping(Callback):
         print('\n')
         print("Restoring model weights from the end of the best epoch: %05d" % (self.best_epoch + 1))
         self.model.set_weights(self.best_weights)
-        try:
-            save_model(self.model, self.joint_symbol.join([self.savepath, 'best_model_epoch{}_{}{:.4f}.h5']).format(
-                self.best_epoch + 1, self.monitor, self.best_monitor))
-        except:
+        if self.persistence:
             try:
-                save_model(self.model, self.joint_symbol.join([self.savepath, 'best_model_epoch{}_{}{:.4f}']).format(
+                save_model(self.model, self.joint_symbol.join([self.savepath, 'best_model_epoch{}_{}{:.4f}.h5']).format(
                     self.best_epoch + 1, self.monitor, self.best_monitor))
             except:
                 save_model(self.model.main_model, self.joint_symbol.join([self.savepath, 'best_main_epoch{}_{}{:.4f}.h5']).format(
