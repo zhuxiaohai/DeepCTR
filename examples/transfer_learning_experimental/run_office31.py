@@ -1,10 +1,18 @@
 import tensorflow as tf
 from tensorflow.python.keras import layers
+from deepctr.call_backs import ModifiedExponentialDecay
+from deepctr.models.transferlearning.domain_adaptation import DomainAdaptation
+from deepctr.models.transferlearning.transferloss import DomainAdversarialLoss
 
 IMAGE_SIZE = (256, 256)
 CROP_SIZE = 224
-BATCH_SIZE = 256
+BATCH_SIZE = 16
 AUTO = 2
+NUM_CLASSES = 31
+last_lr = 0.01
+train_iter_num = 500
+epochs = 20
+max_iter_num = epochs * train_iter_num
 
 source_dir = "../data/office31/amazon"
 target_dir = "../data/office31/webcam"
@@ -38,7 +46,6 @@ source_ds_train = (
     source_ds
     .shuffle(BATCH_SIZE * 100)
     .repeat()
-    .batch(BATCH_SIZE)
     .map(lambda x, y: (train_aug(x, training=True), y), num_parallel_calls=AUTO)
     .prefetch(AUTO)
 )
@@ -54,17 +61,49 @@ target_ds_train = (
     target_ds
     .shuffle(BATCH_SIZE * 100)
     .repeat()
-    .batch(BATCH_SIZE)
     .map(lambda x, y: (train_aug(x, training=True), y), num_parallel_calls=AUTO)
     .prefetch(AUTO)
 )
 
-model = tf.keras.applications.ResNet50(
+
+target_ds_val = (
+    target_ds
+    .map(lambda x, y: (None, (test_aug(x, training=True), y)), num_parallel_calls=AUTO)
+    .prefetch(AUTO)
+)
+
+train_ds = tf.data.Dataset.zip((source_ds_train.take(train_iter_num), target_ds_train.take(train_iter_num)))
+
+raw_model = tf.keras.applications.ResNet50(
                                         include_top=True,
                                         weights="imagenet",
-                                        input_tensor=None,
-                                        input_shape=None,
-                                        pooling=None,
                                         classes=1000,
                                        )
+raw_model_base = tf.keras.Model(inputs=raw_model.input, outputs=raw_model.get_layer('avg_pool').output)
+feature_extractor = tf.keras.Sequential(
+    [
+    raw_model_base,
+    layers.Dense(256),
+    layers.Activation('relu')
+    ])
+out = feature_extractor(raw_model.input)
+logit = layers.Dense(NUM_CLASSES)(out)
+proba = tf.nn.softmax(logit)
+model = tf.keras.Model(inputs=raw_model.input, outputs=proba)
+
+optimizer = tf.keras.optimizers.SGD(momentum=0.9, decay=0.001,
+                                    learning_rate=ModifiedExponentialDecay(last_lr, max_iter_num=max_iter_num, alpha=0.02))
+model.compile(optimizer=optimizer,
+              loss=tf.keras.losses.SparseCategoricalCrossentropy(),
+              metrics=tf.keras.metrics.SparseCategoricalAccuracy())
+
+da_loss = DomainAdversarialLoss(max_iter_grl=max_iter_num, dnn_units=[256, 256], use_bn=True)
+dann = DomainAdaptation(feature_extractor, model)
+dann.compile(da_loss=da_loss,
+             optimizer_da_loss=tf.keras.optimizers.SGD(momentum=0.9, decay=0.001,
+                                    learning_rate=ModifiedExponentialDecay(last_lr, max_iter_num=max_iter_num, alpha=0.02)))
+dann.fit(train_ds,
+         validation_data=target_ds_val,
+         epochs=epochs,
+         )
 
