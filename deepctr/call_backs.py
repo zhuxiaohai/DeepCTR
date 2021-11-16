@@ -217,8 +217,9 @@ class MyEarlyStopping(Callback):
             current_lr = self.model.optimizer.lr.current_lr
         except:
             current_lr = self.model.optimizer.lr
-        self.model.save_weights(self.joint_symbol.join([self.savepath, 'model-{:02d}-{:.5f}']).format(
-            self.current_epoch + 1, K.get_value(current_lr)))
+        if self.persistence:
+            self.model.save_weights(self.joint_symbol.join([self.savepath, 'model-{:02d}-{:.5f}']).format(
+                self.current_epoch + 1, K.get_value(current_lr)))
         print('\n')
         print("Restoring model weights from the end of the best epoch: %05d" % (self.best_epoch + 1))
         self.model.set_weights(self.best_weights)
@@ -259,7 +260,7 @@ class MyEarlyStopping(Callback):
             self.wait += 1
             if self.wait >= self.patience:
                 self.model.stop_training = True
-                print("Epoch %05d: early stopping. Saving the best at Epoch %05d" %
+                print("Epoch %05d: early stopping. The best at Epoch %05d" %
                       (self.current_epoch + 1, self.best_epoch + 1))
 
     def on_train_end(self, logs=None):

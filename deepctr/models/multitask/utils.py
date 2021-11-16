@@ -92,6 +92,65 @@ def calc_lift2(df, pred, target, title_name, ax, groupnum=None):
     return ax
 
 
+def calc_lift3(df, pred, target, groupnum=None, range_col=None, title_name='lift'):
+    cm_light = '#A0A0FF'
+    cm_dark = 'r'
+    if groupnum is None:
+        groupnum = df[range_col].unique().shape[0]
+
+    def n0(x):
+        return sum(x == 0)
+
+    def n1(x):
+        return sum(x == 1)
+
+    def total(x):
+        return x.shape[0]
+
+    def name(x):
+        return '[{:.2f}'.format(x.iloc[0]) + ', ' + '{:.2f}]'.format(x.iloc[-1])
+
+    if range_col is None:
+        dfkslift = df.sort_values(pred, ascending=True).reset_index(drop=True) \
+            .assign(group=lambda x: np.ceil((x.index + 1) / (len(x.index) / groupnum))) \
+            .groupby('group').agg({target: [n0, n1, total], pred: name}) \
+            .reset_index().rename(columns={'name': 'range', 'n0': 'good', 'n1': 'bad', 'total': 'count'})
+        columns = dfkslift.columns.droplevel(0).tolist()
+        columns[0] = 'group'
+    else:
+        dfkslift = df.sort_values(pred, ascending=True).reset_index(drop=True) \
+            .groupby(range_col).agg({target: [n0, n1, total]}) \
+            .reset_index().rename(columns={range_col: 'range', 'n0': 'good', 'n1': 'bad', 'total': 'count'})
+        columns = dfkslift.columns.droplevel(0).tolist()
+        columns[0] = 'range'
+    dfkslift.columns = columns
+    dfkslift = dfkslift.assign(
+        good_distri=lambda x: x.good / sum(x.good),
+        bad_distri=lambda x: x.bad / sum(x.bad),
+        total_distri=lambda x: x['count'] / sum(x['count']),
+        cumgood_distri=lambda x: np.cumsum(x.good) / sum(x.good),
+        cumbad_distri=lambda x: np.cumsum(x.bad) / sum(x.bad),
+        badrate=lambda x: x.bad / (x.good + x.bad),
+        cumbadrate=lambda x: np.cumsum(x.bad) / np.cumsum(x.good + x.bad),
+        lift=lambda x: (np.cumsum(x.bad) / np.cumsum(x.good + x.bad)) / (sum(x.bad) / sum(x.good + x.bad))) \
+        .assign(ks=lambda x: abs(x.cumbad_distri - x.cumgood_distri))
+    dfkslift['lift'] = dfkslift.bad_distri / dfkslift.total_distri
+
+    fig, ax = plt.subplots()
+    dfkslift[['total_distri']].plot(kind='bar', width=0.3, color=cm_light, ax=ax, legend=False)
+    ax.set_ylabel('total_distri')
+    ax_curve = ax.twinx()
+    dfkslift[['badrate']].plot(ax=ax_curve, marker='o', markersize=5, color=cm_dark, legend=False)
+    ax_curve.set_ylabel('1_distri')
+    ax_curve.grid()
+    ax_curve.plot([0, groupnum - 1], [dfkslift['cumbadrate'].iloc[-1], dfkslift['cumbadrate'].iloc[-1]], 'r--')
+    ax.set_xticks(np.arange(groupnum))
+    ax.set_xticklabels(dfkslift['range'].values, rotation=-20, horizontalalignment='left')
+    ax.set_xlim([-0.5, groupnum - 0.5])
+    ax.set_title(title_name)
+    return dfkslift, ax
+
+
 def calc_cum(df, pred, target, title_name, ax, groupnum=None):
     if groupnum is None:
         groupnum = len(df.index)
