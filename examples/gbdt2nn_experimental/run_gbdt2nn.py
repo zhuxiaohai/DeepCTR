@@ -138,7 +138,7 @@ test_cate_input = {name: test_cate[test_cate['set'] == '2test'][name] if name !=
 #                       'metrics': AUC(name='task1_AUC')
 #                       }
 #
-# from deepctr.models.tuner.optuna_search_keras import OptunaSearchKeras
+# from deepctr.models.tuners.optuna_search_keras import OptunaSearchKeras
 # op = OptunaSearchKeras(build_model_param_dict=build_model_param_dict,
 #                        compile_param_dict=compile_param_dict,
 #                        build_model_fn=build_model_fn,

@@ -284,11 +284,11 @@ if __name__ == "__main__":
                      callbacks=[keras.callbacks.EarlyStopping(monitor='val_fpd4_AUC',
                                                               patience=10)]
                      )
-        # even if you had not searched the best param, tuner object could find the best hyperparameters
+        # even if you had not searched the best param, tuners object could find the best hyperparameters
         # as well as the best model from the tuning_dir you passed in
         best_hyperparameters = tuner.get_best_hyperparameters(1)[0]
         print(best_hyperparameters.values)
-        # model = tuner.get_best_models(1)[0]
+        # model = tuners.get_best_models(1)[0]
     else:
         if not os.path.exists(trend_dir):
             os.makedirs(trend_dir)
