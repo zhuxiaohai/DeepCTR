@@ -5,7 +5,7 @@ from tensorflow.python.keras.initializers import Constant
 
 
 # class MultiTaskModelBase(keras.Model):
-#     def compile(self, optimizers, loss_fns, metrics_logger, loss_weights=None, uncertainly=False, run_eagerly=False):
+#     def compile(self, multitask_modified, loss_fns, metrics_logger, loss_weights=None, uncertainly=False, run_eagerly=False):
 #         if not isinstance(loss_fns, dict):
 #             raise ValueError("loss_fns must be a dict")
 #         if not isinstance(metrics_logger, dict):
@@ -18,7 +18,7 @@ from tensorflow.python.keras.initializers import Constant
 #                 raise ValueError("loss_weights must be a dict")
 #             self.loss_weights = loss_weights
 #         super(MultiTaskModelBase, self).compile(run_eagerly=run_eagerly)
-#         self.optimizers = optimizers
+#         self.multitask_modified = multitask_modified
 #         self.loss_fns = loss_fns
 #         self.total_loss_logger = keras.metrics.Mean(name="total_loss")
 #         self.loss_logger = {task_name: keras.metrics.Mean(name=task_name + "_loss") for
@@ -68,7 +68,7 @@ from tensorflow.python.keras.initializers import Constant
 #             total_loss += sum(self.losses)
 #         self.total_loss_logger.update_state(total_loss)
 #         grads = tape.gradient(total_loss, self.trainable_weights)
-#         self.optimizers.apply_gradients(zip(grads, self.trainable_weights))
+#         self.multitask_modified.apply_gradients(zip(grads, self.trainable_weights))
 #
 #         return {m.name: m.result() for m in self.metrics}
 #

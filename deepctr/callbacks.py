@@ -11,7 +11,7 @@ from tensorflow.keras.optimizers.schedules import LearningRateSchedule
 import numpy as np
 
 
-@keras_export("keras.optimizers.schedules.ModifiedExponentialDecay")
+@keras_export("keras.multitask_modified.schedules.ModifiedExponentialDecay")
 class ModifiedExponentialDecay(LearningRateSchedule):
     def __init__(
             self,

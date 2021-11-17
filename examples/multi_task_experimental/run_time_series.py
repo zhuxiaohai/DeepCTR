@@ -2,13 +2,13 @@ import joblib
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from tensorflow.python.keras.models import load_model, save_model
+from tensorflow.python.keras.models import save_model
 from tensorflow.python.keras.callbacks import Callback
 from sklearn.metrics import roc_auc_score, roc_curve
 from sklearn.preprocessing import LabelEncoder
 
 from deepctr.feature_column import SparseFeat, VarLenSparseFeat, DenseFeat, get_feature_names
-from deepctr.models.multitask_modified.time_series import TimeSeries, RnnAttentionalLayer
+from deepctr.models.sequence.attentional_pooling import TimeSeries, RnnAttentionalLayer
 from deepctr.layers import custom_objects
 custom_objects['RnnAttentionalLayer'] = RnnAttentionalLayer
 

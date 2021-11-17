@@ -87,7 +87,7 @@ class CompositeOptimizerTest(tf.test.TestCase, parameterized.TestCase):
         grads2 = tf.constant([0.5, 0.0, -2.0])
         grads3 = tf.constant([-0.2, 0.0, -1.0])
 
-        # Test same variable in two optimizers.
+        # Test same variable in two multitask_modified.
         composite_optimizer = CompositeOptimizer([
             (tf.keras.optimizers.Adam(), lambda: [var1]),
             (tf.keras.optimizers.Adagrad(), lambda: [var1, var2]),
@@ -98,7 +98,7 @@ class CompositeOptimizerTest(tf.test.TestCase, parameterized.TestCase):
         with self.assertRaises(ValueError):
             composite_optimizer.apply_gradients(grads_and_vars)
 
-        # Test missing variable (var3) in optimizers.
+        # Test missing variable (var3) in multitask_modified.
         composite_optimizer = CompositeOptimizer([
             (tf.keras.optimizers.Adam(), lambda: [var1]),
             (tf.keras.optimizers.Adagrad(), lambda: [var2]),

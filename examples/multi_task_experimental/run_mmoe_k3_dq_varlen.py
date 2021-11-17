@@ -333,7 +333,7 @@ if __name__ == "__main__":
         # last_lr = 0.003
         last_lr = 0.001
         optimizers = keras.optimizers.Adam(learning_rate=ModifiedExponentialDecay(last_lr))
-        # optimizers = keras.optimizers.Adam(learning_rate=last_lr)
+        # multitask_modified = keras.multitask_modified.Adam(learning_rate=last_lr)
         model.compile(optimizers=optimizers,
                       loss_fns=loss_fns,
                       metrics_logger=metrics_logger,

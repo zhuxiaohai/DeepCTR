@@ -23,8 +23,8 @@ Tensor = Union[tf.Tensor, tf.SparseTensor, tf.RaggedTensor]
 
 
 class CompositeOptimizer(tf.keras.optimizers.Optimizer):
-    """An optimizer that composes multiple individual optimizers.
-    It allows different optimizers to be applied to different subsets of the
+    """An optimizer that composes multiple individual multitask_modified.
+    It allows different multitask_modified to be applied to different subsets of the
     model's variables. For example, it makes it possible to apply one
     optimizer to the model's embeddings (sparse variables) and another
     optimizer to the rest of its variables.
@@ -34,8 +34,8 @@ class CompositeOptimizer(tf.keras.optimizers.Optimizer):
     For example:
     ```python
       optimizer = CompositeOptimizer([
-          (tf.keras.optimizers.SGD(), lambda: model.sparse_trainable_variables),
-          (tf.keras.optimizers.Adam(), lambda: model.dense_trainable_variables),
+          (tf.keras.multitask_modified.SGD(), lambda: model.sparse_trainable_variables),
+          (tf.keras.multitask_modified.Adam(), lambda: model.dense_trainable_variables),
       ])
     ```
     """
@@ -122,5 +122,5 @@ class CompositeOptimizer(tf.keras.optimizers.Optimizer):
 
     @property
     def optimizers(self) -> List[tf.keras.optimizers.Optimizer]:
-        """Returns the optimizers in composite optimizer (in the original order)."""
+        """Returns the multitask_modified in composite optimizer (in the original order)."""
         return [optimizer for optimizer, _ in self._optimizers_and_vars]

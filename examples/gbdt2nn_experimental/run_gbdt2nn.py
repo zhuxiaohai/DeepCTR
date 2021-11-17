@@ -115,7 +115,7 @@ test_cate_input = {name: test_cate[test_cate['set'] == '2test'][name] if name !=
                    for name in feature_names}
 
 # def get_optimizer(**param):
-#     return keras.optimizers.Adam(learning_rate=ModifiedExponentialDecay(**param))
+#     return keras.multitask_modified.Adam(learning_rate=ModifiedExponentialDecay(**param))
 #
 # def build_model_fn(embedding_dim, **params):
 #     cat_feature_columns = [SparseFeat(feat, vocabulary_size=train_cate[feat].max() + 1,
