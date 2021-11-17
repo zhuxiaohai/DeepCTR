@@ -1,9 +1,9 @@
 import tensorflow as tf
 from tensorflow.python.keras import layers
-from deepctr.call_backs import ModifiedExponentialDecay
+from deepctr.callbacks import ModifiedExponentialDecay
 from deepctr.models.transferlearning.domain_adaptation import DomainAdaptation
 from deepctr.models.transferlearning.transferloss import DomainAdversarialLoss
-from deepctr.models.multitask.composite_optimizer import CompositeOptimizer
+from deepctr.optimizers.composite_optimizer import CompositeOptimizer
 
 IMAGE_SIZE = (256, 256)
 CROP_SIZE = 224

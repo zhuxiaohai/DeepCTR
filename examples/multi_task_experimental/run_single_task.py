@@ -20,10 +20,10 @@ import kerastuner as kt
 from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 from deepctr.feature_column import SparseFeat, DenseFeat, get_feature_names
-from deepctr.models.multitask.single_task import SimpleDNN
-from deepctr.call_backs import MyEarlyStopping
-from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
-from deepctr.models.multitask.utils import calc_lift, cal_psi_score, calc_cum
+from deepctr.models.multitask_modified.single_task import SimpleDNN
+from deepctr.callbacks import MyEarlyStopping
+from deepctr.models.multitask_modified.multitaskbase import MultiTaskModelBase
+from deepctr.metrics import calc_lift, cal_psi_score, calc_cum
 
 custom_objects['NoMask'] = NoMask
 custom_objects['MultiTaskModelBase'] = MultiTaskModelBase

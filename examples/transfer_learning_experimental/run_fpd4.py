@@ -17,12 +17,12 @@ from tensorflow.python.keras.callbacks import TensorBoard
 from deepctr.feature_column import DenseFeat, get_feature_names
 from deepctr.models.transferlearning.domain_adaptation import DomainAdaptation
 from deepctr.models.transferlearning.transferloss import DomainAdversarialLoss, MMDLoss, LMMDLoss
-from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
+from deepctr.models.multitask_modified.multitaskbase import MultiTaskModelBase
 from deepctr.models.transferlearning.basenet import SimpleDNN
-from deepctr.call_backs import MyEarlyStopping, ModifiedExponentialDecay, MyRecorder
+from deepctr.callbacks import MyEarlyStopping, ModifiedExponentialDecay, MyRecorder
 from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
-from deepctr.models.multitask.utils import calc_lift
+from deepctr.metrics import calc_lift
 from deepctr.models.transferlearning.utils import plot_tsne_source_target, proxy_a_distance
 
 custom_objects['NoMask'] = NoMask

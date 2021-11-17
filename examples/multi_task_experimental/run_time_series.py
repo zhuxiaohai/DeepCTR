@@ -8,7 +8,7 @@ from sklearn.metrics import roc_auc_score, roc_curve
 from sklearn.preprocessing import LabelEncoder
 
 from deepctr.feature_column import SparseFeat, VarLenSparseFeat, DenseFeat, get_feature_names
-from deepctr.models.multitask.time_series import TimeSeries, RnnAttentionalLayer
+from deepctr.models.multitask_modified.time_series import TimeSeries, RnnAttentionalLayer
 from deepctr.layers import custom_objects
 custom_objects['RnnAttentionalLayer'] = RnnAttentionalLayer
 

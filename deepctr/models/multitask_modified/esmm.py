@@ -13,7 +13,7 @@ import tensorflow as tf
 from deepctr.feature_column import build_input_features, input_from_feature_columns
 from deepctr.layers.utils import combined_dnn_input
 from deepctr.layers.core import DNN, PredictionLayer
-from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
+from deepctr.models.multitask_modified.multitaskbase import MultiTaskModelBase
 
 
 def ESMM(dnn_feature_columns, tasks, dnn_hidden_units=(32, 16, 8), l2_reg_embedding=1e-5, l2_reg_dnn=0,

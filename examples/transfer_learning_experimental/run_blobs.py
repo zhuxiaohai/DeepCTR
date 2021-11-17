@@ -16,8 +16,8 @@ from tensorflow.python.keras.models import load_model
 from deepctr.models.transferlearning.domain_adaptation import DomainAdaptation
 from deepctr.models.transferlearning.transferloss import DomainAdversarialLoss, LMMDLoss, MMDLoss
 from deepctr.models.transferlearning.utils import plot_tsne_source_target, proxy_a_distance
-from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
-from deepctr.call_backs import MyEarlyStopping, ModifiedExponentialDecay
+from deepctr.models.multitask_modified.multitaskbase import MultiTaskModelBase
+from deepctr.callbacks import MyEarlyStopping, ModifiedExponentialDecay
 from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 

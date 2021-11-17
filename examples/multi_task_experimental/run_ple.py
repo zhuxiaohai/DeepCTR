@@ -20,10 +20,10 @@ import tensorflow as tf
 from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 from deepctr.feature_column import SparseFeat, DenseFeat, get_feature_names
-from deepctr.models.multitask.ple import PLE, CGC
-from deepctr.call_backs import MyEarlyStopping, MyRecorder
-from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
-from deepctr.models.multitask.utils import calc_lift, cal_psi_score, calc_cum
+from deepctr.models.multitask_modified.ple import PLE, CGC
+from deepctr.callbacks import MyEarlyStopping, MyRecorder
+from deepctr.models.multitask_modified.multitaskbase import MultiTaskModelBase
+from deepctr.metrics import calc_lift, cal_psi_score, calc_cum
 
 custom_objects['NoMask'] = NoMask
 custom_objects['CGC'] = CGC

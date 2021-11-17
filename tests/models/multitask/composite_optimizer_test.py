@@ -21,7 +21,7 @@ from absl.testing import parameterized
 import numpy as np
 import tensorflow as tf
 
-from deepctr.models.multitask.composite_optimizer import CompositeOptimizer
+from deepctr.optimizers.composite_optimizer import CompositeOptimizer
 
 
 class CompositeOptimizerTest(tf.test.TestCase, parameterized.TestCase):

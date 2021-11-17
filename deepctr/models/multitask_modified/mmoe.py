@@ -15,7 +15,7 @@ from tensorflow.python.keras import activations
 from deepctr.feature_column import build_input_features, input_from_feature_columns, get_linear_logit
 from deepctr.layers.utils import combined_dnn_input, add_func
 from deepctr.layers.core import PredictionLayer, DNN
-from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
+from deepctr.models.multitask_modified.multitaskbase import MultiTaskModelBase
 
 
 class MMOELayer(Layer):

@@ -17,9 +17,9 @@ import tensorflow as tf
 from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 from deepctr.feature_column import SparseFeat, DenseFeat, get_feature_names
-from deepctr.models.multitask.esmm import ESMM
-from deepctr.call_backs import MyEarlyStopping
-from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
+from deepctr.models.multitask_modified.esmm import ESMM
+from deepctr.callbacks import MyEarlyStopping
+from deepctr.models.multitask_modified.multitaskbase import MultiTaskModelBase
 
 custom_objects['NoMask'] = NoMask
 custom_objects['MultiTaskModelBase'] = MultiTaskModelBase

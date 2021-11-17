@@ -9,7 +9,7 @@ from tensorflow.python.keras.metrics import AUC, Mean
 from deepctr.models.gbdt2nn.gbdt_predict_leaf import gbdt_predict
 from deepctr.models.gbdt2nn.leaf2emb import EmbeddingLeafModel, Embedding2Score, Leaf2Embedding
 from deepctr.feature_column import DenseFeat, get_feature_names, SparseFeat
-from deepctr.call_backs import ModifiedExponentialDecay
+from deepctr.callbacks import ModifiedExponentialDecay
 from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 from deepctr.models.gbdt2nn.basenet import GBDT_FM

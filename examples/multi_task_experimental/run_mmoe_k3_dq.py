@@ -21,10 +21,10 @@ import kerastuner as kt
 from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 from deepctr.feature_column import SparseFeat, DenseFeat, get_feature_names
-from deepctr.models.multitask.mmoe import MMOELayer, MMOE_BIAS
-from deepctr.call_backs import MyEarlyStopping, MyRecorder, ModifiedExponentialDecay
-from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
-from deepctr.models.multitask.utils import calc_lift, cal_psi_score
+from deepctr.models.multitask_modified.mmoe import MMOELayer, MMOE_BIAS
+from deepctr.callbacks import MyEarlyStopping, MyRecorder, ModifiedExponentialDecay
+from deepctr.models.multitask_modified.multitaskbase import MultiTaskModelBase
+from deepctr.metrics import calc_lift, cal_psi_score
 
 custom_objects['NoMask'] = NoMask
 custom_objects['MMOELayer'] = MMOELayer

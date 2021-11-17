@@ -10,7 +10,7 @@ from deepctr.feature_column import build_input_features, get_linear_logit, DEFAU
 from deepctr.layers.core import PredictionLayer, ModifiedPredictionLayer, DNN
 from deepctr.layers.interaction import FM
 from deepctr.layers.utils import concat_func, add_func, combined_dnn_input
-from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
+from deepctr.models.multitask_modified.multitaskbase import MultiTaskModelBase
 
 
 def SimpleDNN(dnn_feature_columns, tasks, num_outdim=1, dnn_hidden_units=(128, 128), dnn_use_bn=False,

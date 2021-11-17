@@ -15,9 +15,9 @@ import tensorflow as tf
 from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 from deepctr.feature_column import SparseFeat, get_feature_names, VarLenSparseFeat
-from deepctr.models.multitask.mmoe import MMOELayer, MMOE_BIAS
-from deepctr.call_backs import MyEarlyStopping, MyRecorder, ModifiedExponentialDecay
-from deepctr.models.multitask.multitaskbase import MultiTaskModelBase
+from deepctr.models.multitask_modified.mmoe import MMOELayer, MMOE_BIAS
+from deepctr.callbacks import MyEarlyStopping, MyRecorder, ModifiedExponentialDecay
+from deepctr.models.multitask_modified.multitaskbase import MultiTaskModelBase
 
 custom_objects['NoMask'] = NoMask
 custom_objects['MMOELayer'] = MMOELayer

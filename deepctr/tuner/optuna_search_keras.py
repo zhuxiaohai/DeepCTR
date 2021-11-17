@@ -6,7 +6,7 @@ from optuna.integration import TFKerasPruningCallback
 
 import tensorflow as tf
 
-from deepctr.call_backs import MyEarlyStopping
+from deepctr.callbacks import MyEarlyStopping
 
 
 def train_val_score(train_score, val_score, w):
