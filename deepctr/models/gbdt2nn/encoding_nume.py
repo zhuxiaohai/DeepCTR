@@ -60,11 +60,12 @@ class NumEncoder(object):
         self.Max_len = {}
         self.samples = 0
 
-    def fit_transform(self, inPath, outPath, persist=True):
+    def fit_transform(self, X, outPath, y=None, persist=True):
         print('----------------------------------------------------------------------')
-        print('Fitting and Transforming %s .' % inPath)
+        print('Fitting and Transforming.')
         print('----------------------------------------------------------------------')
-        df = pd.read_csv(inPath, dtype=self.dtype_dict)
+        df = X.astype(dtype=self.dtype_dict)
+        df = df.replace(['nan'], np.nan)
         self.samples = df.shape[0]
         print(df.shape[0])
         print('Filtering and fillna features')
@@ -86,12 +87,14 @@ class NumEncoder(object):
         print('Ordinal encoding cate features')
         # ordinal_encoding
         df = self.encoder.fit_transform(df)
+        for col in self.encoder.cols:
+            df[col] = df[col].astype(np.int32)
 
         print('Target encoding cate features')
         # dynamic_targeting_encoding
         for item in tqdm(self.cate_col):
             feats = df[item].values
-            labels = df[self.label_name].values
+            labels = y.values if y is not None else df[self.label_name].values
             feat_encoding = {'mean': [], 'count': []}
             feat_temp_result = collections.defaultdict(lambda: [0, 0])
             self.save_cate_avgs[item] = collections.defaultdict(lambda: [0, 0])
@@ -135,10 +138,12 @@ class NumEncoder(object):
             rows = np.concatenate([rows, res], axis=1)
             del feats
             gc.collect()
-        trn_y = np.array(df[self.label_name].values).reshape((-1, 1))
+        trn_y = np.array(y.values).reshape((-1, 1)) if y is not None\
+            else np.array(df[self.label_name].values).reshape((-1, 1))
+        trn_y = trn_y.astype(np.float32)
         del df
         gc.collect()
-        trn_x = np.array(rows)
+        trn_x = np.array(rows).astype(np.float32)
         if persist:
             np.save(outPath + '_features.npy', trn_x)
             np.save(outPath + '_labels.npy', trn_y)
@@ -146,13 +151,13 @@ class NumEncoder(object):
             return trn_x, trn_y
 
     # for test dataset
-    def transform(self, inPath, outPath, persist=True):
+    def transform(self, X, outPath, y=None, persist=True):
         print('----------------------------------------------------------------------')
-        print('Transforming %s .' % inPath)
+        print('Transforming.')
         print('----------------------------------------------------------------------')
-        df = pd.read_csv(inPath, dtype=self.dtype_dict)
+        df = X.astype(dtype=self.dtype_dict)
+        df = df.replace(['nan'], np.nan)
         print(df.groupby('set')['cust_no'].count())
-        samples = df.shape[0]
         print('Filtering and fillna features')
         for item in tqdm(self.cate_col):
             value_counts = df[item].value_counts()
@@ -196,9 +201,11 @@ class NumEncoder(object):
             rows = np.concatenate([rows, res], axis=1)
             del feats
             gc.collect()
-        vld_y = np.array(df[self.label_name].values).reshape((-1, 1))
+        vld_y = np.array(y.values).reshape((-1, 1)) if y is not None\
+            else np.array(df[self.label_name].values).reshape((-1, 1))
+        vld_y = vld_y.astype(np.float32)
         gc.collect()
-        vld_x = np.array(rows)
+        vld_x = np.array(rows).astype(np.float32)
         if persist:
             np.save(outPath + '_features.npy', vld_x)
             np.save(outPath + '_labels.npy', vld_y)
@@ -276,8 +283,8 @@ class NumEncoder(object):
         # to do
         pass
 
-    def predict(self, df):
-        df = df.astype(dtype=self.dtype_dict)
+    def predict(self, X):
+        df = X.astype(dtype=self.dtype_dict)
         df = df.replace(['nan'], np.nan)
         print('Filtering and fillna features')
         for item in self.cate_col:
@@ -320,10 +327,9 @@ class NumEncoder(object):
             rows = np.concatenate([rows, res], axis=1)
             del feats
             gc.collect()
-        vld_y = np.array(df[self.label_name].values).reshape((-1, 1))
         gc.collect()
-        vld_x = np.array(rows)
-        return vld_x, vld_y
+        vld_x = np.array(rows).astype(np.float32)
+        return vld_x
 
 
 if __name__ == '__main__':
@@ -422,10 +428,11 @@ if __name__ == '__main__':
     else:
         # ec.fit_transform(args['train_csv_path'], args['out_dir'] + '/train')
         # ec.transform(args['test_csv_path'], args['out_dir'] + '/test')
-        ec.fit_transform(args['train_csv_path'], args['out_dir'] + '/train')
+        ec.fit_transform(pd.read_csv(args['train_csv_path']), args['out_dir'] + '/train')
         for data_type in ['2test', '3oot', '4oot', '5oot']:
             df = pd.read_csv(args['test_csv_path'])
             df = df[df['set'] == data_type]
-            vld_x, vld_y = ec.predict(df)
+            vld_x = ec.predict(df)
+            vld_y = np.array(df[ec.label_name].values).reshape((-1, 1))
             np.save(args['out_dir'] + '/test_{}_features.npy'.format(data_type), vld_x)
             np.save(args['out_dir'] + '/test_{}_labels.npy'.format(data_type), vld_y)

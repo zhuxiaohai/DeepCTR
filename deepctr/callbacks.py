@@ -48,7 +48,7 @@ class ModifiedExponentialDecay(LearningRateSchedule):
         }
 
 
-class MyRecorder(Callback):
+class Recorder(Callback):
     def __init__(self, log_dir, data=None,
                  gradient_freq=1, experts_freq=1, lr_freq=1):
         self.gradient_freq = gradient_freq
@@ -58,7 +58,7 @@ class MyRecorder(Callback):
         self.writer = tf.summary.create_file_writer(self.log_dir)
         self.data = data
         self.initial_task_losses = {}
-        super(MyRecorder, self).__init__()
+        super(Recorder, self).__init__()
 
     def set_model(self, model):
         """Sets Keras model and writes graph if specified."""
@@ -189,9 +189,9 @@ class MyRecorder(Callback):
             self._log_lr(epoch)
 
 
-class MyEarlyStopping(Callback):
+class EarlyStopping(Callback):
     def __init__(self, monitor, patience=0, savepath=None, coef_of_balance=0.2, persistence=True, direction='maximize'):
-        super(MyEarlyStopping, self).__init__()
+        super(EarlyStopping, self).__init__()
         self.patience = patience
         self.savepath = savepath
         self.joint_symbol = '/'

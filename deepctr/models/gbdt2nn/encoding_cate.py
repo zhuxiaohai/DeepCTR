@@ -31,11 +31,11 @@ class CateEncoder(object):
         self.save_num_bins = {}
         self.samples = 0
 
-    def save2npy(self, df, out_dir):
+    def save2npy(self, df, out_dir, y=None):
         # if not os.path.isdir(out_dir):
         #     os.mkdir(out_dir)
         result = {'label': [], 'index': [], 'feature_sizes': []}
-        result['label'] = df[self.label_name].values
+        result['label'] = y.values if y is not None else df[self.label_name].values
         result['index'] = df[self.cate_col + self.nume_col].values
         for item in self.cate_col + self.nume_col:
             result['feature_sizes'].append(df[item].max() + 1)
@@ -43,11 +43,12 @@ class CateEncoder(object):
             result[item] = np.array(result[item])
             np.save(out_dir + '_' + item + '.npy', result[item])
 
-    def fit_transform(self, inPath, outPath, persist=True):
+    def fit_transform(self, X, outPath, y=None, persist=True):
         print('----------------------------------------------------------------------')
-        print('Fitting and Transforming %s .' % inPath)
+        print('Fitting and Transforming.')
         print('----------------------------------------------------------------------')
-        df = pd.read_csv(inPath, dtype=self.dtype_dict)
+        df = X.astype(dtype=self.dtype_dict)
+        df = df.replace(['nan'], np.nan)
         print('Filtering and fillna features')
         for item in tqdm(self.cate_col):
             value_counts = df[item].value_counts()
@@ -71,17 +72,20 @@ class CateEncoder(object):
         # ordinal_encoding
         df = self.encoder.fit_transform(df)
         if persist:
+            if y is not None:
+                df[self.label_name] = y.values
             df.to_csv(outPath + 'train_cate.csv', index=False)
-            self.save2npy(df, outPath)
+            self.save2npy(df, outPath, y)
         else:
             return df
 
     # for test dataset
-    def transform(self, inPath, outPath, persist=True):
+    def transform(self, X, outPath, y=None, persist=True):
         print('----------------------------------------------------------------------')
-        print('Transforming %s .' % inPath)
+        print('Transforming %s.')
         print('----------------------------------------------------------------------')
-        df = pd.read_csv(inPath, dtype=self.dtype_dict)
+        df = X.astype(dtype=self.dtype_dict)
+        df = df.replace(['nan'], np.nan)
         print('Filtering and fillna features')
         for item in tqdm(self.cate_col):
             value_counts = df[item].value_counts()
@@ -91,8 +95,7 @@ class CateEncoder(object):
 
         for item in tqdm(self.nume_col):
             if pd.cut(df[item], self.save_num_bins[item], labels=False, include_lowest=True).isnull().sum() > 0:
-                print('test', inPath)
-                print(item)
+                print('test', item)
             df[item] = pd.cut(df[item], self.save_num_bins[item], labels=False, include_lowest=True).fillna(-1).astype(
                 'int')
 
@@ -100,13 +103,15 @@ class CateEncoder(object):
         # ordinal_encoding
         df = self.encoder.transform(df)
         if persist:
+            if y is not None:
+                df[self.label_name] = y.values
             df.to_csv(outPath + 'test_cate.csv', index=False)
-            self.save2npy(df, outPath)
+            self.save2npy(df, outPath, y)
         else:
             return df
 
-    def predict(self, df):
-        df = df.astype(dtype=self.dtype_dict)
+    def predict(self, X):
+        df = X.astype(dtype=self.dtype_dict)
         df = df.replace(['nan'], np.nan)
         print('Filtering and fillna features')
         for item in tqdm(self.cate_col):
@@ -226,5 +231,5 @@ if __name__ == '__main__':
     if args['online']:
         online_encoding()
     else:
-        ec.fit_transform(args['train_csv_path'], args['out_dir'] + '/train/')
-        ec.transform(args['test_csv_path'], args['out_dir'] + '/test/')
+        ec.fit_transform(pd.read_csv(args['train_csv_path']), args['out_dir'] + '/train/')
+        ec.transform(pd.read_csv(args['test_csv_path']), args['out_dir'] + '/test/')

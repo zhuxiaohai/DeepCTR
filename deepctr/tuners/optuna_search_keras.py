@@ -6,7 +6,7 @@ from optuna.integration import TFKerasPruningCallback
 
 import tensorflow as tf
 
-from deepctr.callbacks import MyEarlyStopping
+from deepctr.callbacks import EarlyStopping
 
 
 def train_val_score(train_score, val_score, w):
@@ -110,7 +110,7 @@ class Objective(object):
                 trial_compile_dict[key] = param
         model.compile(**trial_compile_dict)
 
-        early_stopping = MyEarlyStopping('val_'+self.metric,
+        early_stopping = EarlyStopping('val_'+self.metric,
                                          patience=self.early_stop_rounds,
                                          coef_of_balance=self.coef_train_val_disparity,
                                          persistence=False,

@@ -21,7 +21,7 @@ from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 from deepctr.feature_column import SparseFeat, DenseFeat, get_feature_names
 from deepctr.models.multitask_modified.single_task import SimpleDNN
-from deepctr.callbacks import MyEarlyStopping
+from deepctr.callbacks import EarlyStopping
 from deepctr.models.multitask_modified.multitaskbase import MultiTaskModelBase
 from deepctr.metrics import calc_lift, cal_psi_score, calc_cum
 
@@ -79,7 +79,7 @@ if __name__ == "__main__":
     mode = 'train'
 
     # read data
-    data = pd.read_csv('../data/train_for_multi2.csv')
+    data = pd.read_csv('../data/multitask/multitask_demo.csv')
     # fpd4
     # col_x = ['ali_rain_score',
     #          'td_zhixin_score',
@@ -307,7 +307,7 @@ if __name__ == "__main__":
                                              {task_name: test[[task_name]] for task_name in tasks.keys()},
                                              {task_name: test[task_name + '_weight'] for task_name in tasks.keys()}),
                             callbacks=[
-                                      MyEarlyStopping('val_{}_AUC'.format(list(tasks.keys())[0]),
+                                      EarlyStopping('val_{}_AUC'.format(list(tasks.keys())[0]),
                                                       patience=10,
                                                       savepath=checkpoint_dir,
                                                       coef_of_balance=0.4,
@@ -350,7 +350,7 @@ if __name__ == "__main__":
                     best_metric = metric
                     best_model = i
         print('loading ', joint_symbol.join([checkpoint_dir, best_model]))
-        model = load_model(joint_symbol.join([checkpoint_dir, best_model]), custom_objects=custom_objects)
+        model = load_model(joint_symbol.join([checkpoint_dir, best_model]), compile=False, custom_objects=custom_objects)
         file_writer = tf.summary.create_file_writer(summary_dir)
         print('final_result')
         for task_name in tasks.keys():

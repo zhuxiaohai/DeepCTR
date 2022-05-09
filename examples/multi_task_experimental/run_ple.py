@@ -21,7 +21,7 @@ from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 from deepctr.feature_column import SparseFeat, DenseFeat, get_feature_names
 from deepctr.models.multitask_modified.ple import PLE, CGC
-from deepctr.callbacks import MyEarlyStopping, MyRecorder
+from deepctr.callbacks import EarlyStopping, Recorder
 from deepctr.models.multitask_modified.multitaskbase import MultiTaskModelBase
 from deepctr.metrics import calc_lift, cal_psi_score, calc_cum
 
@@ -95,7 +95,7 @@ if __name__ == "__main__":
     mode = 'train'
 
     # read data
-    data = pd.read_csv('../data/train_for_multi2.csv')
+    data = pd.read_csv('../data/multitask/multitask_demo.csv')
     col_x = ['td_i_cnt_partner_all_imbank_365d',
              'duotou_br_als_m3_id_pdl_allnum',
              'marketing_channel_pred_1',
@@ -256,14 +256,14 @@ if __name__ == "__main__":
                                              {'istrans': test[['istrans']], 'fpd4': test[['fpd4']]},
                                              {'istrans': test['istrans_weight'], 'fpd4': test['fpd4_weight']}),
                             callbacks=[
-                                      MyEarlyStopping('val_fpd4_AUC',
-                                                      patience=10,
-                                                      savepath=checkpoint_dir,
-                                                      coef_of_balance=0.4,
-                                                      direction='maximize'),
+                                      EarlyStopping('val_fpd4_AUC',
+                                                    patience=10,
+                                                    savepath=checkpoint_dir,
+                                                    coef_of_balance=0.4,
+                                                    direction='maximize'),
                                       TensorBoard(log_dir=tensorboard_dir),
-                                      MyRecorder(log_dir=tensorboard_dir,
-                                                 data=callback_data)
+                                      Recorder(log_dir=tensorboard_dir,
+                                               data=callback_data)
                             ]
                             )
     elif mode == 'tuning':
@@ -301,7 +301,7 @@ if __name__ == "__main__":
                     best_metric = metric
                     best_model = i
         print('loading ', joint_symbol.join([checkpoint_dir, best_model]))
-        model = load_model(joint_symbol.join([checkpoint_dir, best_model]), custom_objects=custom_objects)
+        model = load_model(joint_symbol.join([checkpoint_dir, best_model]), compile=False, custom_objects=custom_objects)
         outputs = {layer.name: layer.gates_output
                    for layer in model.layers
                    if (layer.name.find('cgc_layer') >= 0) or (layer.name.find('mmoe') >= 0)}

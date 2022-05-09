@@ -18,7 +18,7 @@ from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 from deepctr.feature_column import SparseFeat, DenseFeat, get_feature_names
 from deepctr.models.multitask_modified.esmm import ESMM
-from deepctr.callbacks import MyEarlyStopping
+from deepctr.callbacks import EarlyStopping
 from deepctr.models.multitask_modified.multitaskbase import MultiTaskModelBase
 
 custom_objects['NoMask'] = NoMask
@@ -45,7 +45,7 @@ if __name__ == "__main__":
     mode = 'train'
 
     # read data
-    data = pd.read_csv('../data/train_for_multi2.csv')
+    data = pd.read_csv('../data/multitask/multitask_demo.csv')
     col_x = ['td_i_cnt_partner_all_imbank_365d',
              'duotou_br_als_m3_id_pdl_allnum',
              'marketing_channel_pred_1',
@@ -185,7 +185,7 @@ if __name__ == "__main__":
                                              {'istrans': test[['istrans']], 'fpd4': test[['fpd4']]},
                                              {'istrans': test[['istrans_weight']], 'fpd4': test[['fpd4_weight']]}),
                             callbacks=[
-                                      MyEarlyStopping('val_fpd4_auc',
+                                      EarlyStopping('val_fpd4_auc',
                                                       patience=10,
                                                       savepath=checkpoint_dir,
                                                       coef_of_balance=0.4,
@@ -203,7 +203,7 @@ if __name__ == "__main__":
                     best_metric = metric
                     best_model = i
         print('loading ', checkpoint_dir + '\\' + best_model)
-        model = load_model(checkpoint_dir + '\\' + best_model, custom_objects=custom_objects)
+        model = load_model(checkpoint_dir + '\\' + best_model, compile=False, custom_objects=custom_objects)
         intermediate_layer = model.get_layer(tasks[1][0])
         intermediate_model = Model(model.input, outputs={tasks[1][0]: intermediate_layer.output})
         file_writer = tf.summary.create_file_writer(summary_dir)

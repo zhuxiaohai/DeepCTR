@@ -184,9 +184,7 @@ def MMOE(dnn_feature_columns, tasks, num_experts=4, expert_dim=8,
     :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
     :param dnn_activation: Activation function to use in DNN
 
-    :return: If use_uncertainty is False, return a Keras model instance, otherwise,
-    return a tuple (prediction_model, train_model).
-    train_model should be compiled and fit data first, and then prediction_model is used for prediction.
+    :return: a Keras model instance.
     """
     num_tasks = len(tasks)
     if num_tasks <= 1:
@@ -269,9 +267,7 @@ def MMOE_BIAS(dnn_feature_columns, tasks, bias_feature_columns_dict=None, bias_d
     :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
     :param dnn_activation: Activation function to use in DNN
 
-    :return: If use_uncertainty is False, return a Keras model instance, otherwise,
-    return a tuple (prediction_model, train_model).
-    train_model should be compiled and fit data first, and then prediction_model is used for prediction.
+    :return: a Keras model instance
     """
     num_tasks = len(tasks)
     if num_tasks <= 1:

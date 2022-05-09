@@ -8,19 +8,18 @@ Reference:
 """
 
 import tensorflow as tf
-from tensorflow.python.keras.layers import Dense, Input, Permute, Concatenate
-from tensorflow.python.keras.initializers import glorot_normal, Zeros
+from tensorflow.python.keras.layers import Dense, Input, Permute, Concatenate, Flatten
+from tensorflow.keras.initializers import glorot_normal, Zeros
 from tensorflow.python.keras.regularizers import l2
-from tensorflow.python.keras.layers import Layer
+from tensorflow.python.keras.layers import Layer, Conv1D
 
 from deepctr.feature_column import SparseFeat, VarLenSparseFeat, DenseFeat, build_input_features
 from deepctr.inputs import create_embedding_matrix, embedding_lookup, get_dense_input
 from deepctr.layers.core import DNN, PredictionLayer
-from deepctr.layers.sequence import DynamicGRU
 from deepctr.layers.utils import combined_dnn_input, softmax, concat_func
 
 
-class RnnAttentionalLayer(Layer):
+class SelfAttentionalPoolingLayer(Layer):
     """The Attentional sequence pooling operation used in Rnn like structures.
       Input shape
         - A list of three tensor: [keys,keys_length]
@@ -37,16 +36,25 @@ class RnnAttentionalLayer(Layer):
     def __init__(self, weight_normalization=False,
                  return_score=False,
                  attention_factor=4,
-                 l2_reg_w=0,
+                 l2_reg_w=0.0,
                  seed=1024,
                  supports_masking=False, **kwargs):
         self.weight_normalization = weight_normalization
+        # if return attention score for every time step
         self.return_score = return_score
-        self.supports_masking = supports_masking
+        # Note that the function compute_mask
+        # is only available to take effect when support masking is True.
+        # If support masking = True, the fed in mask will be transferred to output
+        # and if at the same time compute_mask is defined the newly defined mask will be transferred
+        # to output.
+        # If support masking = False, even if there is fed in mask and it is used,
+        # no mask will be transferred out.
+        self.supports_masking = True
         self.attention_factor = attention_factor
+        self.supports_masking = supports_masking
         self.l2_reg_w = l2_reg_w
         self.seed = seed
-        super(RnnAttentionalLayer, self).__init__(**kwargs)
+        super(SelfAttentionalPoolingLayer, self).__init__(**kwargs)
 
     def build(self, input_shape):
         if not self.supports_masking:
@@ -71,30 +79,26 @@ class RnnAttentionalLayer(Layer):
         self.projection_h = self.add_weight(shape=(self.attention_factor, 1),
                                             initializer=glorot_normal(seed=self.seed),
                                             name="projection_h")
-        self.tensordot = tf.keras.layers.Lambda(lambda x: tf.tensordot(x[0], x[1], axes=(-1, 0)))
         # self.att_weight = self.add_weight(shape=(hidden_size, 1),
         #                                   initializer=glorot_normal(seed=1024),
         #                                   name="att_weight")
         # self.att_bias = self.add_weight(shape=(1,), initializer=Zeros(), name="att_bias")
         # self.dense = tf.keras.layers.Lambda(lambda x: tf.nn.bias_add(tf.tensordot(
         #     x[0], x[1], axes=(-1, 0)), x[2]))
-        super(RnnAttentionalLayer, self).build(input_shape)  # Be sure to call this somewhere!
+        super(SelfAttentionalPoolingLayer, self).build(input_shape)  # Be sure to call this somewhere!
 
     def call(self, inputs, mask=None, training=None, **kwargs):
+        rnn_input, sequence_length = inputs
+        max_len = rnn_input.get_shape()[1]
+        rnn_masks = tf.sequence_mask(sequence_length, max_len)
         if self.supports_masking:
             if mask is None:
-                raise ValueError(
-                    "When supports_masking=True,input must support masking")
-            keys = inputs
-            key_masks = tf.expand_dims(mask[-1], axis=1)
-        else:
-            keys, keys_length = inputs
-            hist_len = keys.get_shape()[1]
-            key_masks = tf.sequence_mask(keys_length, hist_len)
+                raise ValueError("When supports_masking=True,input must support masking")
+            rnn_masks = tf.logical_and(rnn_masks, tf.expand_dims(mask, axis=1))
 
-        attention_temp = tf.nn.relu(tf.nn.bias_add(tf.tensordot(
-            keys, self.attention_W, axes=(-1, 0)), self.attention_b))
-        attention_score = self.tensordot([attention_temp, self.projection_h])
+        attention_intermediate = tf.nn.relu(tf.nn.bias_add(tf.tensordot(
+            rnn_input, self.attention_W, axes=(-1, 0)), self.attention_b))
+        attention_score = tf.tensordot(attention_intermediate, self.projection_h, axes=(-1, 0))
         # attention_score = self.dense([tf.tanh(keys), self.att_weight, self.att_bias])
 
         outputs = tf.transpose(attention_score, (0, 2, 1))
@@ -104,14 +108,14 @@ class RnnAttentionalLayer(Layer):
         else:
             paddings = tf.zeros_like(outputs)
 
-        outputs = tf.where(key_masks, outputs, paddings)
+        outputs = tf.where(rnn_masks, outputs, paddings)
 
         if self.weight_normalization:
             outputs = softmax(outputs)
         self.att_score = outputs
 
         if not self.return_score:
-            outputs = tf.matmul(outputs, keys)
+            outputs = tf.matmul(outputs, rnn_input)
 
         if tf.__version__ < '1.13.0':
             outputs._uses_learning_phase = attention_score._uses_learning_phase
@@ -122,12 +126,9 @@ class RnnAttentionalLayer(Layer):
 
     def compute_output_shape(self, input_shape):
         if self.return_score:
-            return (None, 1, input_shape[1][1])
+            return (None, 1, input_shape[0][1])
         else:
             return (None, 1, input_shape[0][-1])
-
-    def compute_mask(self, inputs, mask):
-        return None
 
     def get_config(self, ):
         config = {'weight_normalization': self.weight_normalization,
@@ -136,39 +137,98 @@ class RnnAttentionalLayer(Layer):
                   'attention_factor': self.attention_factor,
                   'l2_reg_w': self.l2_reg_w,
                   'seed': self.seed}
-        base_config = super(RnnAttentionalLayer, self).get_config()
+        base_config = super(SelfAttentionalPoolingLayer, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
 
-def evolution(concat_behavior, user_behavior_length,
-              embedding_size=8, gru_type="GRU",
-              att_weight_normalization=False,
-              attention_factor=4, l2_reg_w=1e-5):
+class ModifiedDynamicGRU(Layer):
+    def __init__(self, num_units=None, return_sequence=True, supports_masking=True, **kwargs):
+
+        self.num_units = num_units
+        self.return_sequence = return_sequence
+        # Note that the function compute_mask
+        # is only available to take effect when support masking is True.
+        # If support masking = True, the fed in mask will be transferred to output
+        # and if at the same time compute_mask is defined the newly defined mask will be transferred
+        # to output.
+        # If support masking = False, even if there is fed in mask and it is used,
+        # no mask will be transferred out.
+        self.supports_masking = supports_masking
+        super(ModifiedDynamicGRU, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        # Create a trainable weight variable for this layer.
+        input_seq_shape = input_shape[0]
+        if self.num_units is None:
+            self.num_units = input_seq_shape.as_list()[-1]
+        else:
+            # self.gru_cell = tf.compat.v1.nn.rnn_cell.GRUCell(self.num_units)
+            self.gru_cell = tf.keras.layers.GRUCell(self.num_units)
+        # Be sure to call this somewhere!
+        super(ModifiedDynamicGRU, self).build(input_shape)
+
+    def call(self, input_list, mask=None, training=None):
+        """
+        :param concated_embeds_value: None * field_size * embedding_size
+        :return: None*1
+        """
+        rnn_input, sequence_length = input_list
+        max_len = rnn_input.get_shape()[1]
+        rnn_masks = tf.sequence_mask(tf.squeeze(sequence_length, -1), max_len)
+        if self.supports_masking:
+            if mask is None:
+                raise ValueError("When supports_masking=True,input must support masking")
+            rnn_masks = tf.logical_and(rnn_masks, mask)
+        rnn_output, hidden_state = tf.keras.layers.RNN(self.gru_cell, return_state=True,
+                                                       return_sequences=self.return_sequence)(
+            rnn_input, mask=rnn_masks, training=training)
+        # rnn_output, hidden_state = dynamic_rnn(self.gru_cell, inputs=rnn_input, att_scores=None,
+        #                                        sequence_length=tf.squeeze(sequence_length,
+        #                                                                   ), dtype=tf.float32, scope=self.name)
+        if self.return_sequence:
+            return rnn_output
+        else:
+            return tf.expand_dims(hidden_state, axis=1)
+
+    def compute_output_shape(self, input_shape):
+        rnn_input_shape = input_shape[0]
+        if self.return_sequence:
+            return rnn_input_shape
+        else:
+            return (None, 1, rnn_input_shape[2])
+
+    def get_config(self, ):
+        config = {'num_units': self.num_units, 'return_sequence': self.return_sequence}
+        base_config = super(ModifiedDynamicGRU, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
+def get_sequence_pooling(sequence_input, sequence_length,
+                         embedding_size=8, gru_type="GRU",
+                         att_weight_normalization=False,
+                         attention_factor=4, l2_reg_w=1e-5):
     if gru_type == 'GRU':
-        final_state = DynamicGRU(embedding_size, return_sequence=False,
-                                 name="gru1")([concat_behavior, user_behavior_length])
+        final_state = ModifiedDynamicGRU(embedding_size, return_sequence=False,
+                                         supports_masking=False,
+                                         name="dynamic_gru")([sequence_input, sequence_length])
+        return final_state
     else:
-        rnn_outputs = DynamicGRU(embedding_size, return_sequence=True,
-                                 name="gru1")([concat_behavior, user_behavior_length])
-        if gru_type == "AVGRU":
-            final_state = RnnAttentionalLayer(weight_normalization=att_weight_normalization,
-                                              return_score=False,
-                                              attention_factor=attention_factor,
-                                              l2_reg_w=l2_reg_w)([rnn_outputs, user_behavior_length])
-        else:  # AUGRU
-            scores = RnnAttentionalLayer(weight_normalization=att_weight_normalization,
-                                         return_score=True,
-                                         attention_factor=attention_factor,
-                                         l2_reg_w=l2_reg_w)([rnn_outputs, user_behavior_length])
-            final_state = DynamicGRU(embedding_size, gru_type=gru_type, return_sequence=False,
-                                     name='gru2')([rnn_outputs, user_behavior_length, Permute([2, 1])(scores)])
-    return final_state
+        rnn_outputs = ModifiedDynamicGRU(embedding_size, return_sequence=True,
+                                         supports_masking=False,
+                                         name="dynamic_gru")([sequence_input, sequence_length])
+        pooling_result = SelfAttentionalPoolingLayer(weight_normalization=att_weight_normalization,
+                                                     return_score=False,
+                                                     supports_masking=False,
+                                                     attention_factor=attention_factor,
+                                                     l2_reg_w=l2_reg_w)([rnn_outputs, sequence_length])
+        return pooling_result
 
 
-def TimeSeries(constant_feature_columns, behavior_feature_columns, behavior_sparse_indicator,
-               gru_type="AVGRU", gru_hidden_size=8, gru_attention_w_dim=4, gru_attention_w_l2=0.1,
-               dnn_hidden_units=(200, 80), dnn_activation='dice', dnn_use_bn=False,
-               l2_reg_embedding=1e-6, l2_reg_dnn=0, dnn_dropout=0, seed=1024, task='binary'):
+def AttentionalPooling(constant_feature_columns, behavior_feature_columns, behavior_sparse_indicator,
+                       constant_dense_normalizer, behavior_dense_normalizer,
+                       gru_type="AVGRU", gru_hidden_size=8, gru_attention_w_dim=4, gru_attention_w_l2=0.1,
+                       dnn_hidden_units=(200, 80), dnn_activation='dice', dnn_use_bn=False,
+                       l2_reg_embedding=1e-6, l2_reg_dnn=0, dnn_dropout=0, seed=1024, task='binary'):
     """
     :param constant_feature_columns: An iterable containing all constant features
     :param behavior_feature_columns: An iterable containing all timeseries features
@@ -207,24 +267,25 @@ def TimeSeries(constant_feature_columns, behavior_feature_columns, behavior_spar
     inputs_list = list(features.values())
 
     embedding_dict = create_embedding_matrix(constant_feature_columns + behavior_feature_columns,
-                                             l2_reg_embedding, seed, prefix="", seq_mask_zero=False)
+                                             l2_reg_embedding, seed, prefix="", seq_mask_zero=True)
 
     history_dense_value_list = get_dense_input(features, varlen_dense_feature_columns)
     history_dense = tf.keras.layers.Lambda(lambda x: tf.keras.backend.stack(x, axis=-1))(history_dense_value_list)
+    history_dense = behavior_dense_normalizer(history_dense)
+    history_dense = Conv1D(filters=32, kernel_size=3, strides=1, activation='relu', padding='same')(history_dense)
     if len(varlen_sparse_feature_columns) > 0:
         history_emb_list = embedding_lookup(embedding_dict, features, varlen_sparse_feature_columns,
                                             return_feat_list=history_fc_names, to_list=True)
-        history_emb = concat_func(history_emb_list)
+        history_emb = concat_func(history_emb_list, mask=True)
         history_input = Concatenate()([history_emb, history_dense])
     else:
         history_input = history_dense
-    hist = evolution(history_input, user_behavior_length,
-                     embedding_size=gru_hidden_size,
-                     gru_type=gru_type,
-                     att_weight_normalization=True,
-                     attention_factor=gru_attention_w_dim,
-                     l2_reg_w=gru_attention_w_l2)
-
+    hist = get_sequence_pooling(history_input, user_behavior_length,
+                                embedding_size=gru_hidden_size,
+                                gru_type=gru_type,
+                                att_weight_normalization=True,
+                                attention_factor=gru_attention_w_dim,
+                                l2_reg_w=gru_attention_w_l2)
     if len(constant_sparse_feature_columns) > 0:
         dnn_input_emb_list = embedding_lookup(embedding_dict, features, constant_sparse_feature_columns,
                                               mask_feat_list=behavior_sparse_indicator, to_list=True)
@@ -236,7 +297,12 @@ def TimeSeries(constant_feature_columns, behavior_feature_columns, behavior_spar
 
     deep_dense_value_list = get_dense_input(features, constant_dense_feature_columns)
 
-    dnn_input = combined_dnn_input([deep_input_emb], deep_dense_value_list)
+    if len(deep_dense_value_list) > 0:
+        dense_dnn_input = Flatten()(concat_func(deep_dense_value_list))
+        dense_dnn_input = constant_dense_normalizer(dense_dnn_input)
+        dnn_input = concat_func([deep_input_emb, dense_dnn_input])
+    else:
+        dnn_input = deep_input_emb
 
     output = DNN(dnn_hidden_units, dnn_activation, l2_reg_dnn,
                  dnn_dropout, dnn_use_bn, seed=seed)(dnn_input)
@@ -247,8 +313,4 @@ def TimeSeries(constant_feature_columns, behavior_feature_columns, behavior_spar
 
     model = tf.keras.models.Model(inputs=inputs_list, outputs=output)
 
-    try:
-        tf.keras.backend.get_session().run(tf.global_variables_initializer())
-    except:
-        tf.compat.v1.keras.backend.get_session().run(tf.compat.v1.global_variables_initializer())
     return model

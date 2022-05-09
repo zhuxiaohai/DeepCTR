@@ -52,8 +52,8 @@ else:
 batch_size = 256
 epochs = 100
 
-dz_ts = pd.read_csv('../data/data_K3_dz_samples.csv')
-dq_ts = pd.read_csv('../data/data_dq_0716_updated.csv')
+dz_ts = pd.read_csv('../data/transferlearning/data_K3_dz_samples.csv')
+dq_ts = pd.read_csv('../data/transferlearning/data_dq_0716_updated.csv')
 
 dz_ts['fpd4_weight'] = 1.0
 dz_ts['fpd4_mask'] = 1.0
@@ -100,9 +100,9 @@ candidate_features = ['cust_no','shouxin_date','fpd4', 'fpd4_weight', 'fpd4_mask
          'study_app_cnt','selffill_degree','selffill_is_have_creditcard','selffill_marital_status','ab_local_cnt','ab_prov_cnt']
 
 if mode == 'test':
-    dq_oot = pd.concat([pd.read_csv('../data/dqts_201908_202107_1.csv'),
-                        pd.read_csv('../data/dqts_201908_202107_2.csv'),
-                        pd.read_csv('../data/dqts_201908_202107_3.csv')],
+    dq_oot = pd.concat([pd.read_csv('../data/transferlearning/dqts_201908_202107_1.csv'),
+                        pd.read_csv('../data/transferlearning/dqts_201908_202107_2.csv'),
+                        pd.read_csv('../data/transferlearning/dqts_201908_202107_3.csv')],
                        axis=0)
     dq_oot = dq_oot[(dq_oot.shouxin_date > '2020-06-09') &
                     (dq_oot.shouxin_date < '2020-08-01') &
