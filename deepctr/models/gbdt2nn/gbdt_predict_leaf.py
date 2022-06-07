@@ -2,12 +2,11 @@ import numpy as np
 from .tree_interpreter import ModelInterpreter
 
 
-def SubGBDTLeaf_cls(train_x, test_x, gbm, maxleaf, num_slices, args):
+def SubGBDTLeaf_cls(x, gbm, maxleaf, num_slices, args):
     # total feature_num
-    MAX=train_x.shape[1]
+    MAX=x.shape[1]
     # (None, number of trees)
-    leaf_preds = gbm.predict(train_x, pred_leaf=True).reshape(train_x.shape[0], -1)
-    test_leaf_preds = gbm.predict(test_x, pred_leaf=True).reshape(test_x.shape[0], -1)
+    leaf_preds = gbm.predict(x, pred_leaf=True).reshape(x.shape[0], -1)
     n_trees = leaf_preds.shape[1]
     # number of trees in a group
     step = int((n_trees + num_slices - 1) // num_slices)
@@ -62,38 +61,30 @@ def SubGBDTLeaf_cls(train_x, test_x, gbm, maxleaf, num_slices, args):
             used_features.append(MAX)
         # (None, number of trees in a group) with values bing leaf index
         cur_leaf_preds = leaf_preds[:, tree_indices]
-        cur_test_leaf_preds = test_leaf_preds[:, tree_indices]
         # get the output of a group of trees for every sample: (None,)
-        new_train_y = np.zeros(train_x.shape[0])
-        new_test_y = np.zeros(test_x.shape[0])
+        new_y = np.zeros(x.shape[0])
         # to be specific: add up the output of every tree in a group
         for jdx in tree_indices:
             # get the output of tree "jdx" for every sample: (None,)
-            new_train_y += np.take(leaf_output[jdx,:].reshape(-1), leaf_preds[:,jdx].reshape(-1))
-            new_test_y += np.take(leaf_output[jdx, :].reshape(-1), test_leaf_preds[:, jdx].reshape(-1))
-        new_train_y = new_train_y.reshape(-1, 1).astype(np.float32)
-        new_test_y = new_test_y.reshape(-1, 1).astype(np.float32)
+            new_y += np.take(leaf_output[jdx,:].reshape(-1), leaf_preds[:,jdx].reshape(-1))
+        new_y = new_y.reshape(-1, 1).astype(np.float32)
         # yield a group
-        yield used_features, new_train_y, new_test_y, cur_leaf_preds, cur_test_leaf_preds, np.mean(np.take(leaf_output, tree_indices,0)), np.mean(leaf_output)
+        yield used_features, new_y, cur_leaf_preds, np.mean(np.take(leaf_output, tree_indices,0)), np.mean(leaf_output)
 
 
-def gbdt_predict(train_x, test_x, gbm, args):
-    gbms = SubGBDTLeaf_cls(train_x, test_x, gbm, args['maxleaf'], num_slices=args['nslices'], args=args)
-    min_len_features = train_x.shape[1]
+def gbdt_predict(x, gbm, args):
+    gbms = SubGBDTLeaf_cls(x, gbm, args['maxleaf'], num_slices=args['nslices'], args=args)
+    min_len_features = x.shape[1]
     used_features = []
     tree_outputs = []
-    test_tree_outputs = []
     leaf_preds = []
-    test_leaf_preds = []
     max_ntree_per_split = 0
     group_average = []
-    for used_feature, new_train_y, new_test_y, leaf_pred, test_leaf_pred, avg, all_avg in gbms:
+    for used_feature, new_y, leaf_pred, avg, all_avg in gbms:
         used_features.append(used_feature)
         min_len_features = min(min_len_features, len(used_feature))
-        tree_outputs.append(new_train_y)
-        test_tree_outputs.append(new_test_y)
+        tree_outputs.append(new_y)
         leaf_preds.append(leaf_pred)
-        test_leaf_preds.append(test_leaf_pred)
         group_average.append(avg)
         max_ntree_per_split = max(max_ntree_per_split, leaf_pred.shape[1])
     for i in range(len(used_features)):
@@ -107,10 +98,7 @@ def gbdt_predict(train_x, test_x, gbm, args):
                                             np.zeros([leaf_preds[i].shape[0],
                                                       max_ntree_per_split-leaf_preds[i].shape[1]],
                                                      dtype=np.int32)], axis=1)
-            test_leaf_preds[i] = np.concatenate([test_leaf_preds[i] + 1,
-                                                 np.zeros([test_leaf_preds[i].shape[0],
-                                                           max_ntree_per_split-test_leaf_preds[i].shape[1]],
-                                                          dtype=np.int32)], axis=1)
     leaf_preds = np.concatenate(leaf_preds, axis=1)
-    test_leaf_preds = np.concatenate(test_leaf_preds, axis=1)
-    return leaf_preds, test_leaf_preds, tree_outputs, test_tree_outputs, group_average, used_features, n_models, max_ntree_per_split, min_len_features
+    return leaf_preds, tree_outputs, group_average, used_features, n_models, max_ntree_per_split, min_len_features
+
+

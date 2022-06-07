@@ -1,3 +1,13 @@
+"""
+Author:
+    Xiaohai Zhu
+References:
+    Guolin Ke, Zhenhui Xu, Jia Zhang, Jiang Bian, and Tie-Yan Liu.
+    "DeepGBM: A Deep Learning Framework Distilled by GBDT for Online Prediction Tasks."
+    In Proceedings of the 25th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining.
+    ACM, 2019: 384-394.
+"""
+
 import tensorflow as tf
 from tensorflow.keras.layers import Layer
 from tensorflow.keras.models import Model
@@ -12,6 +22,26 @@ from deepctr.layers.utils import concat_func
 class Leaf2Embedding(Layer):
     def __init__(self, n_split, maxleaf, embsize, use_bn=False,
                  l2_reg=0.0, seed=1024, *args, **kwargs):
+        """
+        Args:
+            n_split: number of groups that all the trees will be divided into
+            maxleaf: max number of leaves in a tree. It should be the same as that in gbdt paramaters
+            embsize: embedding size
+            use_bn: bool, if use batch normalization
+            l2_reg: float, l2 regularization
+            seed: int
+            *args: layer parameters
+            **kwargs: layer parameters
+        Input:
+            (None, number of trees)
+        Output:
+            (None, number of trees)
+            --> one hot (None*number of trees, maxleaf)
+            -->(None, n_split, (number of trees / n_split) * maxleaf)
+            -->(n_split, None, (number of trees / n_split) * maxleaf)
+            -->(n_split, None, embsize)
+            -->(None, n_split * embsize)
+        """
         self.n_split = n_split
         self.maxleaf = maxleaf
         self.embsize = embsize
@@ -27,6 +57,7 @@ class Leaf2Embedding(Layer):
                                        initializer=glorot_normal(seed=self.seed),
                                        regularizer=l2(self.l2_reg),
                                        trainable=True)
+        self.batch_nm = tf.keras.layers.BatchNormalization()
         super(Leaf2Embedding, self).build(input_shape)
 
     def call(self, inputs, training=True):
@@ -40,7 +71,7 @@ class Leaf2Embedding(Layer):
         leaf_emb = tf.transpose(leaf_emb, (1, 0, 2))
         leaf_emb = tf.keras.layers.Reshape((-1,), name='embedded_leaf')(leaf_emb)
         if self.use_bn:
-            leaf_emb = tf.keras.layers.BatchNormalization()(leaf_emb)
+            leaf_emb = self.batch_nm(leaf_emb)
         return leaf_emb
 
     def get_config(self):
@@ -61,6 +92,24 @@ class Leaf2Embedding(Layer):
 class Embedding2Score(Layer):
     def __init__(self, n_split, out_bias_initializer,
                  l2_reg=0.0, seed=1024, *args, **kwargs):
+        """
+        Args:
+            n_split: number of groups that all the trees will be divided into
+            out_bias_initializer: Tensor, output bias initializer, shape (n_split * 1 * 1)
+            l2_reg: float, l2 regularization
+            seed: int
+            *args: layer parameters
+            **kwargs: layer parameters
+        Input:
+            (None, n_split * embsize)
+        Output:
+            (None, n_split * embsize)
+            -->(None, n_split, embsize)
+            -->(n_split, None, embsize)
+            -->(n_split, None, 1)
+            -->(None, n_split, 1)
+            -->(None, n_split)
+        """
         self.n_split = n_split
         self.l2_reg = l2_reg
         self.seed = seed
@@ -146,6 +195,23 @@ class Embedding2Score(Layer):
 
 def EmbeddingLeafModel(dnn_feature_columns, n_split, maxleaf, embsize,
                        task='regression', out_bias=None, use_bn=False, l2_reg=0.0, dropout_rate=0.0, seed=1024):
+    """
+    Args:
+        dnn_feature_columns: An iterable containing all the features used by the model.
+        n_split: int, number of groups that all the trees will be divided into
+        maxleaf: int, max number of leaves in a tree. It should be the same as that in gbdt parameters
+        embsize: int, embedding size
+        task: 'binary' or 'regression'
+        out_bias: Tensor, output bias initializer, shape (n_split * 1 * 1), average scores for each split(group)
+        use_bn: bool, if use batch normalization
+        l2_reg: float, l2 regularization
+        dropout_rate: float, drop out rate
+        seed: int
+    Input:
+        (None, number of trees)
+    Return:
+        (None, n_split) --> sum of all splits  --> (None, 1)
+    """
     # prepare intermediate layers
     if out_bias is not None:
         out_bias_initializer = Constant(out_bias, verify_shape=True)
