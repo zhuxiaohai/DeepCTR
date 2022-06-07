@@ -67,7 +67,7 @@ args = {'nslices': 1, 'maxleaf': 2, 'embsize': 32, 'feat_per_group': 50, 'group_
 train_x, train_y, test_x, test_y, \
 oot1_x, oot1_y, oot2_x, oot2_y, oot3_x, oot3_y = load_data('../data/gbdt2nn/risk_offline_nume')
 gbm = load_lightgbm('../data/gbdt2nn/lightgbm_8tree.pkl')
-# gbm2 = load_lightgbm_pkl('../data/gbdt2nn/lightgbm_model.pickle')
+gbm2 = load_lightgbm_pkl('../data/gbdt2nn/lightgbm_model.pickle')
 leaf_preds, tree_outputs, \
 group_average, used_features, n_models, max_ntree_per_split, min_len_features = \
     gbdt_predict(train_x, gbm, args)
