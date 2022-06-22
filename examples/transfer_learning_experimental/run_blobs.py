@@ -17,7 +17,7 @@ from deepctr.models.transferlearning.domain_adaptation import DomainAdaptation
 from deepctr.models.transferlearning.transferloss import DomainAdversarialLoss, LMMDLoss, MMDLoss
 from deepctr.models.transferlearning.utils import plot_tsne_source_target, proxy_a_distance
 from deepctr.models.multitask_modified.multitaskbase import MultiTaskModelBase
-from deepctr.callbacks import MyEarlyStopping, ModifiedExponentialDecay
+from deepctr.callbacks import EarlyStopping, ModifiedExponentialDecay
 from deepctr.layers import custom_objects
 from deepctr.layers.utils import NoMask
 
@@ -29,8 +29,8 @@ custom_objects['AUC'] = AUC
 custom_objects['ModifiedExponentialDecay'] = ModifiedExponentialDecay
 
 project_name = 'k3dq'
-run_name = 'toy_lmmd_da2'
-mode = 'train'
+run_name = 'toy_lmmd_da3'
+mode = 'test'
 joint_symbol = '/'
 checkpoint_dir = joint_symbol.join([project_name, 'ckt', run_name])
 tensorboard_dir = joint_symbol.join([project_name, 'log_dir', run_name])
@@ -39,6 +39,7 @@ trend_dir = joint_symbol.join([project_name, 'trend', run_name])
 epochs = 1
 batch_size = 8
 
+# make dataset
 source_x, source_y = make_blobs(300, centers=[[0, 0], [0, 1]], cluster_std=0.2, random_state=0)
 target_x, target_y = make_blobs(300, centers=[[1, -1], [1, 0]], cluster_std=0.2, random_state=0)
 source_y2 = source_y[:, np.newaxis].astype(int)
@@ -52,7 +53,7 @@ if run_name.find('_lmmd') >= 0:
 train_source_batch_num = math.ceil(len(source_x) / batch_size)
 train_target_batch_num = math.ceil(len(target_x) / batch_size)
 train_iter_num = max(train_source_batch_num, train_target_batch_num)
-train_iter_num = 10000
+# train_iter_num = 10000
 max_iter_num = epochs * train_iter_num
 
 source_dataset = tf.data.Dataset.from_tensor_slices((source_x, source_y2))
@@ -75,6 +76,7 @@ target_df.loc[:, 'label'] = target_y
 target_df.loc[:, 'set'] = '2target'
 data = pd.concat([source_df, target_df], axis=0)
 
+# modeling
 if mode == 'train':
     if run_name.find('_lmmd') >= 0:
         model = tf.keras.Sequential([tf.keras.layers.Input(2),
@@ -119,7 +121,7 @@ if mode == 'train':
         dann.fit(x,
                  validation_data=val_dataset,
                  epochs=epochs,
-                 callbacks=[MyEarlyStopping(metric,
+                 callbacks=[EarlyStopping(metric,
                                             patience=10,
                                             savepath=checkpoint_dir,
                                             coef_of_balance=0,
@@ -137,7 +139,7 @@ if mode == 'train':
         history = model.fit(source_dataset,
                             epochs=epochs,
                             validation_data=val_dataset,
-                            callbacks=[MyEarlyStopping(metric,
+                            callbacks=[EarlyStopping(metric,
                                                        patience=10,
                                                        savepath=checkpoint_dir,
                                                        coef_of_balance=0,
@@ -167,7 +169,7 @@ else:
     print(score)
     file_writer = tf.summary.create_file_writer(summary_dir)
 
-    fig = plt.figure(figsize=(8, 10))
+    fig, ax = plt.subplots()
     fig.suptitle(run_name)
     for index, set_name in enumerate(['1source', '2target']):
         set_data = data[data['set'] == set_name]
@@ -204,5 +206,6 @@ else:
 
         emb_s = F.predict(source_data[['x', 'y']].values)
         emb_t = F.predict(set_data[['x', 'y']].values)
-        plot_tsne_source_target(emb_s, source_data['label'].values, emb_t, set_data['label'].values,
-                                path_name=joint_symbol.join([trend_dir, set_name]))
+        plot_tsne_source_target(emb_s, source_data['label'].values, emb_t, set_data['label'].values, ax,
+                                name=joint_symbol.join([trend_dir, set_name]))
+        plt.show()

@@ -6,7 +6,7 @@ Author:
 import tensorflow as tf
 from tensorflow.keras.layers import Layer
 import tensorflow.keras.backend as K
-from tensorflow.python.keras.utils import control_flow_util
+from tensorflow.python.keras.utils import tf_utils
 from deepctr.layers.core import DNN
 
 
@@ -32,7 +32,7 @@ class GradientReversalLayer(Layer):
     def call(self, x, training=True, **kwargs):
         true_branch = lambda: self.grl_lambda_schedule()
         false_branch = lambda: tf.constant(-1.0, dtype=tf.float32)
-        grl_lambda = control_flow_util.smart_cond(training, true_branch, false_branch)
+        grl_lambda = tf_utils.smart_cond(training, true_branch, false_branch)
         return gradient_reversal(x, grl_lambda)
 
     def get_config(self):
@@ -241,7 +241,7 @@ class LMMDLoss(MMDLoss):
         # Dynamic weighting
         true_branch = lambda: self.lambda_schedule()
         false_branch = lambda: tf.constant(1.0, dtype=tf.float32)
-        lamb = control_flow_util.smart_cond(training, true_branch, false_branch)
+        lamb = tf_utils.smart_cond(training, true_branch, false_branch)
         loss = loss * lamb
         self.add_metric(loss, 'lmmd_distance')
         return loss
