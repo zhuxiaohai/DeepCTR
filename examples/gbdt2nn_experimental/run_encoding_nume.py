@@ -26,7 +26,7 @@ numC = 26
 train_csv_path = '../data/gbdt2nn/train.csv'
 test_csv_path = '../data/gbdt2nn/test.csv'
 out_dir = '../data/gbdt2nn/risk_offline_nume'
-online = True
+online = False
 
 # for criteo
 # cate_col = ['C'+str(i) for i in range(1, args['numC']+1)]

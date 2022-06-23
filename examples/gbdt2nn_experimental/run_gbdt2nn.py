@@ -28,8 +28,8 @@ custom_objects['EmbeddingLeafModel'] = EmbeddingLeafModel
 def load_data(data_dir):
     trn_x = np.load(data_dir+"/train_features.npy").astype(np.float32)
     trn_y = np.load(data_dir+"/train_labels.npy").astype(np.float32)
-    vld_x = np.load(data_dir+"/test_features.npy").astype(np.float32)
-    vld_y = np.load(data_dir+"/test_labels.npy").astype(np.float32)
+    vld_x = np.load(data_dir+"/test_2test_features.npy").astype(np.float32)
+    vld_y = np.load(data_dir+"/test_2test_labels.npy").astype(np.float32)
 
     vld_x1 = np.load(data_dir+"/test_3oot_features.npy").astype(np.float32)
     vld_y1 = np.load(data_dir+"/test_3oot_labels.npy").astype(np.float32)
