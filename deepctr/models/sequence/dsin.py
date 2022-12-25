@@ -10,10 +10,9 @@ Reference:
 
 from collections import OrderedDict
 
-import tensorflow as tf
+from tensorflow.python.keras.models import Model
 from tensorflow.python.keras.layers import (Concatenate, Dense, Embedding,
                                             Flatten, Input)
-from tensorflow.python.keras.models import Model
 from tensorflow.python.keras.regularizers import l2
 
 from ...feature_column import SparseFeat, VarLenSparseFeat, DenseFeat, build_input_features
@@ -25,7 +24,7 @@ from ...layers.utils import concat_func, combined_dnn_input
 
 
 def DSIN(dnn_feature_columns, sess_feature_list, sess_max_count=5, bias_encoding=False,
-         att_embedding_size=1, att_head_num=8, dnn_hidden_units=(256, 128, 64), dnn_activation='sigmoid', dnn_dropout=0,
+         att_embedding_size=1, att_head_num=8, dnn_hidden_units=(256, 128, 64), dnn_activation='relu', dnn_dropout=0,
          dnn_use_bn=False, l2_reg_dnn=0, l2_reg_embedding=1e-6, seed=1024, task='binary',
          ):
     """Instantiates the Deep Session Interest Network architecture.
@@ -129,7 +128,7 @@ def DSIN(dnn_feature_columns, sess_feature_list, sess_max_count=5, bias_encoding
 
     dnn_input_emb = combined_dnn_input([dnn_input_emb], dense_value_list)
     output = DNN(dnn_hidden_units, dnn_activation, l2_reg_dnn, dnn_dropout, dnn_use_bn, seed=seed)(dnn_input_emb)
-    output = Dense(1, use_bias=False, kernel_initializer=tf.keras.initializers.glorot_normal(seed))(output)
+    output = Dense(1, use_bias=False)(output)
     output = PredictionLayer(task)(output)
 
     sess_input_list = []

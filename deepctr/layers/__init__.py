@@ -1,17 +1,16 @@
 import tensorflow as tf
 
 from .activation import Dice
-from .core import DNN, LocalActivationUnit, PredictionLayer, ModifiedPredictionLayer
+from .core import DNN, LocalActivationUnit, PredictionLayer, ModifiedPredictionLayer, RegulationModule
 from .interaction import (CIN, FM, AFMLayer, BiInteractionPooling, CrossNet, CrossNetMix,
                           InnerProductLayer, InteractingLayer,
                           OutterProductLayer, FGCNNLayer, SENETLayer, BilinearInteraction,
-                          FieldWiseBiInteraction, FwFMLayer, FEFMLayer)
+                          FieldWiseBiInteraction, FwFMLayer, FEFMLayer, BridgeModule)
 from .normalization import LayerNormalization
 from .sequence import (AttentionSequencePoolingLayer, BiasEncoding, BiLSTM,
                        KMaxPooling, SequencePoolingLayer, WeightedSequenceLayer,
-                       Transformer, DynamicGRU,PositionEncoding)
-
-from .utils import NoMask, Hash, Linear, Add, combined_dnn_input, softmax, reduce_sum
+                       Transformer, DynamicGRU, PositionEncoding)
+from .utils import NoMask, Hash, Linear, _Add, combined_dnn_input, softmax, reduce_sum, Concat
 
 custom_objects = {'tf': tf,
                   'InnerProductLayer': InnerProductLayer,
@@ -42,12 +41,14 @@ custom_objects = {'tf': tf,
                   'SENETLayer': SENETLayer,
                   'BilinearInteraction': BilinearInteraction,
                   'WeightedSequenceLayer': WeightedSequenceLayer,
-                  'Add': Add,
+                  '_Add': _Add,
                   'FieldWiseBiInteraction': FieldWiseBiInteraction,
                   'FwFMLayer': FwFMLayer,
                   'softmax': softmax,
                   'FEFMLayer': FEFMLayer,
                   'reduce_sum': reduce_sum,
                   'PositionEncoding': PositionEncoding,
+                  'RegulationModule': RegulationModule,
+                  'BridgeModule': BridgeModule,
                   'ModifiedPredictionLayer': ModifiedPredictionLayer
                   }
